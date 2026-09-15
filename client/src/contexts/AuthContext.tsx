@@ -6,6 +6,14 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import type { User, StudentProfile, PlatformRole, PlatformNotification } from "@shared/types";
 import { toast } from "sonner";
 
+import {
+  apiGetUser,
+  apiGetProfile,
+  apiVerifyOtp,
+  apiVerifyDualOtp,
+  apiRegisterStudent,
+} from "@/lib/authClientDb";
+
 interface AuthContextType {
   user: User | null;
   profile: StudentProfile | null;
@@ -47,25 +55,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function loadUser(userId: string) {
     try {
       setLoading(true);
-      const res = await fetch(`/api/auth/me?userId=${userId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-        localStorage.setItem("ca_user_id", data.user.id);
+      const userData = await apiGetUser(userId);
+      if (userData.user) {
+        setUser(userData.user);
+        localStorage.setItem("ca_user_id", userData.user.id);
 
         // Load profile
-        const profRes = await fetch(`/api/profile/${data.user.id}`);
-        if (profRes.ok) {
-          const pData = await profRes.json();
-          setProfile(pData.profile);
+        const profData = await apiGetProfile(userData.user.id);
+        if (profData.profile) {
+          setProfile(profData.profile);
         }
 
         // Load notifications
-        const notifRes = await fetch(`/api/users/${data.user.id}/notifications`);
-        if (notifRes.ok) {
-          const nData = await notifRes.json();
-          setNotifications(nData.notifications || []);
-        }
+        try {
+          const notifRes = await fetch(`/api/users/${userData.user.id}/notifications`);
+          if (notifRes.ok) {
+            const nData = await notifRes.json();
+            setNotifications(nData.notifications || []);
+          }
+        } catch {}
       }
     } catch (err) {
       console.error("[AUTH] Error loading user data:", err);
@@ -76,13 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function loginWithOtp(identifier: string, code: string) {
     try {
-      const res = await fetch("/api/auth/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, code }),
-      });
-      const data = await res.json();
-      if (res.ok && data.user) {
+      setLoading(true);
+      const data = await apiVerifyOtp(identifier, code);
+      setLoading(false);
+      if (data.success && data.user) {
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -91,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: false, error: data.error || "Authentication failed" };
     } catch (err: any) {
+      setLoading(false);
       return { success: false, error: err.message };
     }
   }
@@ -103,14 +109,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }) {
     try {
       setLoading(true);
-      const res = await fetch("/api/auth/dual-otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-      });
-      const data = await res.json();
+      const data = await apiVerifyDualOtp(params);
       setLoading(false);
-      if (res.ok && data.user) {
+      if (data.success && data.user) {
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -126,13 +127,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function registerStudent(params: any) {
     try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-      });
-      const data = await res.json();
-      if (res.ok && data.user) {
+      setLoading(true);
+      const data = await apiRegisterStudent(params);
+      setLoading(false);
+      if (data.success && data.user) {
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -141,9 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: false, error: data.error || "Registration failed" };
     } catch (err: any) {
+      setLoading(false);
       return { success: false, error: err.message };
     }
   }
+
 
   async function recoverAccount(params: any) {
     try {

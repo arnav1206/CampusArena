@@ -33,6 +33,7 @@ import { useLocation } from "wouter";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { apiRequestOtp, apiRequestDualOtp } from "@/lib/authClientDb";
 
 type AuthMode = "login" | "register" | "recover";
 type LoginStep = "credentials" | "verify";
@@ -323,17 +324,12 @@ export default function Login() {
     }
     setLoginLoading(true);
     try {
-      const res = await fetch("/api/auth/otp/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: loginId, type: loginMethod }),
-      });
-      const data = await res.json();
+      const data = await apiRequestOtp(loginId, loginMethod);
       if (data.success) {
         setLoginOtpSent(true);
         if (data.devOtp) {
           setLoginOtp(data.devOtp);
-          toast.info("Dev mode: OTP printed in server console", { description: `Code: ${data.devOtp}` });
+          toast.success("Verification Code Generated!", { description: `Your OTP is: ${data.devOtp}` });
         } else {
           toast.success("Verification code sent!", { description: `Check your ${loginMethod === "email" ? "inbox" : "phone"}` });
         }
@@ -341,7 +337,7 @@ export default function Login() {
         toast.error(data.message || "Failed to send code.");
       }
     } catch {
-      toast.error("Could not reach server. Please start the backend.");
+      toast.error("An unexpected error occurred while requesting OTP.");
     } finally {
       setLoginLoading(false);
     }
@@ -368,25 +364,19 @@ export default function Login() {
     setSendingEmail(true);
     setSendingMobile(true);
     try {
-      const res = await fetch("/api/auth/dual-otp/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, mobile }),
-      });
-      const data = await res.json();
+      const data = await apiRequestDualOtp(email, mobile);
       if (data.success) {
         setEmailOtpSent(true);
         setMobileOtpSent(true);
         setEmailCooldown(30);
         setMobileCooldown(30);
-        // Store dev OTPs if server is in dev mode (no real credentials)
         setDualOtpTokens({
           emailOtp: data.devEmailOtp || "",
           mobileOtp: data.devMobileOtp || "",
         });
         if (data.devEmailOtp || data.devMobileOtp) {
-          toast.info("Dev mode: OTPs shown below (check server console too)", {
-            description: `Email: ${data.devEmailOtp || "sent"} | Mobile: ${data.devMobileOtp || "sent"}`,
+          toast.success("Verification OTPs Generated!", {
+            description: `Email OTP: ${data.devEmailOtp || "Sent"} | Mobile OTP: ${data.devMobileOtp || "Sent"}`,
           });
         } else {
           toast.success("OTPs dispatched to your email and mobile!", {
@@ -394,15 +384,16 @@ export default function Login() {
           });
         }
       } else {
-        toast.error(data.error || "Failed to send OTPs.");
+        toast.error(data.message || "Failed to send OTPs.");
       }
     } catch {
-      toast.error("Could not reach server. Please start the backend.");
+      toast.error("An unexpected error occurred while requesting OTPs.");
     } finally {
       setSendingEmail(false);
       setSendingMobile(false);
     }
   }
+
 
   function verifyEmailOtp() {
     setVerifyingEmail(true);
