@@ -3,7 +3,7 @@
 CampusArena is a comprehensive Campus Competition Tool designed to simplify the organization, management, and participation in various campus events and competitions.
 
 ## 🚀 Live Demo
-[View Live on Vercel](https://campus-arena.vercel.app/) <!-- Update this link once deployed -->
+[View Live on Vercel](https://campus-arena-five.vercel.app/)
 
 ## 🌟 Features
 - **Role-based Dashboards:** Dedicated experiences for Students, Organizers, Reviewers, Mentors, and Sponsors.
