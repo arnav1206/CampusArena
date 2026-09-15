@@ -275,19 +275,23 @@ export default function Login() {
   const [regYear, setRegYear] = useState("1st Year");
   const [formLoading, setFormLoading] = useState(false);
 
-  // Page entry animation
+  // Page entry animation — runs ONCE on mount
   const pageAnim = useSpring({
     from: { opacity: 0, transform: "translateY(24px)" },
     to: { opacity: 1, transform: "translateY(0px)" },
     config: { tension: 220, friction: 24 },
   });
 
+  // Form slide animation — only plays when mode tab changes, NOT on every keystroke
+  const prevModeRef = React.useRef(mode);
+  const shouldResetForm = prevModeRef.current !== mode;
+  if (shouldResetForm) prevModeRef.current = mode;
+
   const formAnim = useSpring({
     from: { opacity: 0, transform: "translateX(20px)" },
     to: { opacity: 1, transform: "translateX(0px)" },
     config: { tension: 260, friction: 28 },
-    reset: true,
-    key: mode,
+    reset: shouldResetForm,
   });
 
   const featureTrail = useTrail(FEATURES.length, {
