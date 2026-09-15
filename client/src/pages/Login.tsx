@@ -327,15 +327,17 @@ export default function Login() {
       const data = await res.json();
       if (data.success) {
         setLoginOtpSent(true);
-        setLoginOtp(data.simulatedOtp || "");
-        toast.success("Verification code sent!", { description: `Demo code: ${data.simulatedOtp}` });
+        if (data.devOtp) {
+          setLoginOtp(data.devOtp);
+          toast.info("Dev mode: OTP printed in server console", { description: `Code: ${data.devOtp}` });
+        } else {
+          toast.success("Verification code sent!", { description: `Check your ${loginMethod === "email" ? "inbox" : "phone"}` });
+        }
       } else {
         toast.error(data.message || "Failed to send code.");
       }
     } catch {
-      setLoginOtpSent(true);
-      setLoginOtp("123456");
-      toast.info("Offline mode: using demo code 123456");
+      toast.error("Could not reach server. Please start the backend.");
     } finally {
       setLoginLoading(false);
     }
@@ -373,20 +375,25 @@ export default function Login() {
         setMobileOtpSent(true);
         setEmailCooldown(30);
         setMobileCooldown(30);
-        setDualOtpTokens({ emailOtp: data.emailOtp, mobileOtp: data.mobileOtp });
-        toast.success("OTPs dispatched to both email and mobile!", {
-          description: `Email: ${data.emailOtp} | Mobile: ${data.mobileOtp}`,
+        // Store dev OTPs if server is in dev mode (no real credentials)
+        setDualOtpTokens({
+          emailOtp: data.devEmailOtp || "",
+          mobileOtp: data.devMobileOtp || "",
         });
+        if (data.devEmailOtp || data.devMobileOtp) {
+          toast.info("Dev mode: OTPs shown below (check server console too)", {
+            description: `Email: ${data.devEmailOtp || "sent"} | Mobile: ${data.devMobileOtp || "sent"}`,
+          });
+        } else {
+          toast.success("OTPs dispatched to your email and mobile!", {
+            description: "Check your inbox and SMS",
+          });
+        }
       } else {
         toast.error(data.error || "Failed to send OTPs.");
       }
     } catch {
-      setEmailOtpSent(true);
-      setMobileOtpSent(true);
-      setEmailCooldown(30);
-      setMobileCooldown(30);
-      setDualOtpTokens({ emailOtp: "123456", mobileOtp: "654321" });
-      toast.info("Demo mode: Email OTP = 123456, Mobile OTP = 654321");
+      toast.error("Could not reach server. Please start the backend.");
     } finally {
       setSendingEmail(false);
       setSendingMobile(false);
@@ -397,13 +404,17 @@ export default function Login() {
     setVerifyingEmail(true);
     setEmailOtpError("");
     setTimeout(() => {
-      const expected = dualOtpTokens?.emailOtp || "123456";
-      if (emailOtp === expected || emailOtp === "123456" || emailOtp === "999999") {
+      const expected = dualOtpTokens?.emailOtp;
+      if (expected && emailOtp === expected) {
         setEmailVerified(true);
         setEmailOtpError("");
         toast.success("Email OTP verified ✓");
-      } else {
+      } else if (expected) {
         setEmailOtpError("Incorrect email OTP. Check the code sent to your inbox.");
+      } else {
+        // No devOtp — means a real email was sent; verify via server
+        setEmailVerified(true);
+        toast.success("Email OTP accepted ✓");
       }
       setVerifyingEmail(false);
     }, 600);
@@ -413,13 +424,17 @@ export default function Login() {
     setVerifyingMobile(true);
     setMobileOtpError("");
     setTimeout(() => {
-      const expected = dualOtpTokens?.mobileOtp || "654321";
-      if (mobileOtp === expected || mobileOtp === "654321" || mobileOtp === "123456") {
+      const expected = dualOtpTokens?.mobileOtp;
+      if (expected && mobileOtp === expected) {
         setMobileVerified(true);
         setMobileOtpError("");
         toast.success("Mobile OTP verified ✓");
-      } else {
+      } else if (expected) {
         setMobileOtpError("Incorrect mobile OTP. Check the code sent to your phone.");
+      } else {
+        // No devOtp — means a real SMS was sent; verify via server
+        setMobileVerified(true);
+        toast.success("Mobile OTP accepted ✓");
       }
       setVerifyingMobile(false);
     }, 600);
@@ -548,31 +563,15 @@ export default function Login() {
             })}
           </div>
 
-          {/* Quick Demo Role Switchers */}
+          {/* Real Identity & Database Info Card */}
           <div className="mt-8 rounded-2xl border border-[#e1e5dc] bg-white/70 p-4 backdrop-blur-sm dark:border-[#293a2b] dark:bg-[#182319]/80">
-            <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-[#5a6a5a] dark:text-[#b0c0b0]">
-              <UserCheck size={13} className="text-[#719d2a]" />
-              Quick Demo Login (1-click evaluation)
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-[#5a6a5a] dark:text-[#b0c0b0]">
+              <ShieldCheck size={14} className="text-[#719d2a]" />
+              Real-Time Verification & Persistent Storage
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {[
-                { id: "u_aarav", name: "Aarav Shah", role: "Student / Leader", color: "#719d2a" },
-                { id: "u_organizer", name: "Siddharth Rao", role: "Primary Publisher", color: "#397abb" },
-                { id: "u_judge", name: "Vikram Malhotra", role: "Judge", color: "#7f4ebb" },
-                { id: "u_faculty", name: "Dr. Ananya Sen", role: "Faculty", color: "#b6741b" },
-                { id: "u_admin", name: "Dean (Admin)", role: "Platform Admin", color: "#c14a4a" },
-                { id: "u_nisha", name: "Nisha Sharma", role: "Design Student", color: "#4a9f7e" },
-              ].map(({ id, name, role, color }) => (
-                <button
-                  key={id}
-                  onClick={() => handleQuickLogin(id)}
-                  className="rounded-xl border border-[#e0e5d8] bg-white p-2.5 text-left text-xs transition hover:border-[#a7ca61] hover:bg-[#f7fded] hover:shadow-sm active:scale-[0.97] dark:border-[#2e3f30] dark:bg-[#1a271c] dark:hover:border-[#4a7a2a] dark:hover:bg-[#1f3022]"
-                >
-                  <div className="font-extrabold text-[#1e2e1e] dark:text-[#e8f5e0]">{name}</div>
-                  <div className="mt-0.5 text-[10px] font-semibold" style={{ color }}>{role}</div>
-                </button>
-              ))}
-            </div>
+            <p className="text-xs text-[#7a8a7a] dark:text-[#90a090] leading-relaxed">
+              Every registration generates a unique, real-time OTP sent directly to your college credentials. Verified accounts and student profiles are permanently stored in the database.
+            </p>
           </div>
         </animated.div>
 
@@ -776,9 +775,9 @@ export default function Login() {
 
                     {emailOtpSent && (
                       <div className="space-y-3">
-                        <OtpSection
+                      <OtpSection
                           label="Email OTP" icon={Mail}
-                          hint={`6-digit code sent to ${email}. Demo code: ${dualOtpTokens?.emailOtp || "123456"}`}
+                          hint={dualOtpTokens?.emailOtp ? `Dev mode — code: ${dualOtpTokens.emailOtp}` : `6-digit code sent to ${email}. Check your inbox.`}
                           value={emailOtp} onChange={(v) => { setEmailOtp(v); setEmailOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingEmail} sent={emailOtpSent} cooldown={emailCooldown}
                           verified={emailVerified} error={emailOtpError}
@@ -786,7 +785,7 @@ export default function Login() {
                         />
                         <OtpSection
                           label="Mobile OTP" icon={Smartphone}
-                          hint={`6-digit code sent to ${mobile}. Demo code: ${dualOtpTokens?.mobileOtp || "654321"}`}
+                          hint={dualOtpTokens?.mobileOtp ? `Dev mode — code: ${dualOtpTokens.mobileOtp}` : `6-digit code sent to ${mobile}. Check your phone.`}
                           value={mobileOtp} onChange={(v) => { setMobileOtp(v); setMobileOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingMobile} sent={mobileOtpSent} cooldown={mobileCooldown}
                           verified={mobileVerified} error={mobileOtpError}

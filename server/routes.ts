@@ -21,9 +21,9 @@ export const apiRouter = Router();
 // -----------------------------------------------------------------------------
 // 1. Authentication & Role Management
 // -----------------------------------------------------------------------------
-apiRouter.post("/auth/otp/request", (req: Request, res: Response) => {
+apiRouter.post("/auth/otp/request", async (req: Request, res: Response) => {
   const { identifier, type } = req.body;
-  const result = AuthService.requestOtp(identifier, type);
+  const result = await AuthService.requestOtp(identifier, type);
   res.json(result);
 });
 
@@ -36,12 +36,12 @@ apiRouter.post("/auth/otp/verify", (req: Request, res: Response) => {
   res.json(result);
 });
 
-apiRouter.post("/auth/dual-otp/request", (req: Request, res: Response) => {
+apiRouter.post("/auth/dual-otp/request", async (req: Request, res: Response) => {
   const { email, mobile } = req.body;
   if (!email || !mobile) {
     return res.status(400).json({ success: false, error: "Both email and mobile number are required." });
   }
-  const result = AuthService.requestDualOtp(email, mobile);
+  const result = await AuthService.requestDualOtp(email, mobile);
   res.json(result);
 });
 
@@ -81,7 +81,8 @@ apiRouter.post("/auth/switch-role", (req: Request, res: Response) => {
 });
 
 apiRouter.get("/auth/me", (req: Request, res: Response) => {
-  const userId = (req.query.userId as string) || "u_aarav";
+  const userId = (req.query.userId as string) || "";
+  if (!userId) return res.status(400).json({ error: "userId is required" });
   const user = db.get().users.find((u) => u.id === userId);
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json({ user });
@@ -90,6 +91,7 @@ apiRouter.get("/auth/me", (req: Request, res: Response) => {
 apiRouter.get("/users", (_req: Request, res: Response) => {
   res.json({ users: db.get().users });
 });
+
 
 // -----------------------------------------------------------------------------
 // 2. Student Profile & Face Verification
