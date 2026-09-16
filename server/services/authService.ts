@@ -43,7 +43,7 @@ function generateOtp(): string {
 }
 
 const MAX_OTP_ATTEMPTS = 5;
-const PLATFORM_ADMIN_EMAIL = (process.env.PLATFORM_ADMIN_EMAIL || "platform.admin@campusarena.in")
+const PLATFORM_ADMIN_EMAIL = (process.env.PLATFORM_ADMIN_EMAIL || "arnavgoel1206@gmail.com")
   .trim()
   .toLowerCase();
 const PLATFORM_ADMIN_NAME = process.env.PLATFORM_ADMIN_NAME || "Platform Admin";
@@ -224,15 +224,13 @@ export class AuthService {
     otpHelpers.delete(cleanId);
 
     // Find existing user by email or mobile
-    let user =
-      userHelpers.findByEmail(cleanId) ??
-      userHelpers.findByMobile(cleanId);
+    let user = (userHelpers.findByEmail(cleanId) ?? userHelpers.findByMobile(cleanId)) as User | null;
 
     if (!user) {
       // Auto-create a basic account for new users logging in
       const isEmail = cleanId.includes("@");
       const newId = `u_${Date.now()}`;
-      user = userHelpers.create({
+      const createdUser = userHelpers.create({
         id: newId,
         email: isEmail ? cleanId : `${cleanId.replace(/\D/g, "")}@campus.edu`,
         mobile: isEmail ? "" : cleanId,
@@ -243,17 +241,19 @@ export class AuthService {
           : "New Student",
         role: cleanId === PLATFORM_ADMIN_EMAIL ? "admin" : "student",
       });
+      user = createdUser as User;
       profileHelpers.create({
         id: `p_${Date.now()}`,
         userId: newId,
-        name: user.name,
+        name: createdUser.name,
       });
     }
 
-    if (cleanId === PLATFORM_ADMIN_EMAIL && user.role !== "admin") {
-      user = userHelpers.updateRole(user.id, "admin") as User;
+    let authenticatedUser = user as User;
+    if (cleanId === PLATFORM_ADMIN_EMAIL && authenticatedUser.role !== "admin") {
+      authenticatedUser = userHelpers.updateRole(authenticatedUser.id, "admin") as User;
     }
-    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
+    return { success: true, user: authenticatedUser, sessionToken: createSessionToken(authenticatedUser.id) };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
