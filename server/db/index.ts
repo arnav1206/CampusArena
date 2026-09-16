@@ -38,6 +38,7 @@ sqliteDb.exec(`
     name TEXT NOT NULL,
     roll_number TEXT UNIQUE,
     role TEXT NOT NULL DEFAULT 'student',
+    password_hash TEXT,
     avatar_url TEXT DEFAULT '',
     is_verified_college_user INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
@@ -138,6 +139,12 @@ sqliteDb.exec(`
   );
 `);
 
+// Safe migration for databases created before password sign-in was introduced.
+const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+if (!userColumns.some((column) => column.name === "password_hash")) {
+  sqliteDb.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
+}
+
 // =============================================================================
 // OTP helpers — used by authService
 // =============================================================================
@@ -223,6 +230,20 @@ export const userHelpers = {
       .prepare(`SELECT * FROM users WHERE lower(roll_number) = lower(?)`)
       .get(roll.trim()) as Record<string, unknown> | undefined;
     return row ? mapUser(row) : null;
+  },
+
+  findForPasswordLogin(identifier: string): { user: ReturnType<typeof mapUser>; passwordHash: string | null } | null {
+    const clean = identifier.trim().toLowerCase().replace(/\s+/g, "");
+    const row = sqliteDb
+      .prepare("SELECT * FROM users WHERE lower(email) = lower(?) OR replace(mobile, ' ', '') = ? LIMIT 1")
+      .get(clean, clean) as Record<string, unknown> | undefined;
+    return row ? { user: mapUser(row), passwordHash: (row.password_hash as string) || null } : null;
+  },
+
+  setPassword(id: string, passwordHash: string) {
+    sqliteDb.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+      .run(passwordHash, new Date().toISOString(), id);
+    return this.findById(id);
   },
 
   create(user: {

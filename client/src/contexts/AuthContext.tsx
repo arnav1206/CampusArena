@@ -12,7 +12,11 @@ import {
   apiVerifyOtp,
   apiVerifyDualOtp,
   apiRegisterStudent,
+  apiLoginWithPassword,
+  apiSetupPassword,
 } from "@/lib/authClientDb";
+
+type LoginResult = { success: boolean; error?: string; passwordSetupRequired?: boolean; passwordSetupToken?: string };
 
 interface AuthContextType {
   user: User | null;
@@ -21,7 +25,9 @@ interface AuthContextType {
   notifications: PlatformNotification[];
   unreadCount: number;
   loading: boolean;
-  loginWithOtp: (identifier: string, code: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithOtp: (identifier: string, code: string) => Promise<LoginResult>;
+  loginWithPassword: (identifier: string, password: string) => Promise<LoginResult>;
+  completePasswordSetup: (token: string, password: string) => Promise<LoginResult>;
   loginWithDualOtp: (params: { email: string; emailOtp: string; mobile: string; mobileOtp: string }) => Promise<{ success: boolean; error?: string }>;
   registerStudent: (data: any) => Promise<{ success: boolean; error?: string }>;
   recoverAccount: (data: any) => Promise<{ success: boolean; error?: string }>;
@@ -88,6 +94,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await apiVerifyOtp(identifier, code);
       setLoading(false);
       if (data.success && data.user) {
+        if (data.passwordSetupRequired && data.passwordSetupToken) {
+          return { success: true, passwordSetupRequired: true, passwordSetupToken: data.passwordSetupToken };
+        }
         if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
@@ -100,6 +109,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return { success: false, error: err.message };
     }
+  }
+
+  async function loginWithPassword(identifier: string, password: string): Promise<LoginResult> {
+    setLoading(true);
+    const data = await apiLoginWithPassword(identifier, password);
+    setLoading(false);
+    if (!data.success || !data.user || !data.sessionToken) return { success: false, error: data.error || "Authentication failed" };
+    localStorage.setItem("ca_session_token", data.sessionToken);
+    setUser(data.user);
+    localStorage.setItem("ca_user_id", data.user.id);
+    await loadUser(data.user.id);
+    toast.success(`Welcome back, ${data.user.name}!`);
+    return { success: true };
+  }
+
+  async function completePasswordSetup(token: string, password: string): Promise<LoginResult> {
+    setLoading(true);
+    const data = await apiSetupPassword(token, password);
+    setLoading(false);
+    if (!data.success || !data.user || !data.sessionToken) return { success: false, error: data.error || "Unable to save password" };
+    localStorage.setItem("ca_session_token", data.sessionToken);
+    setUser(data.user);
+    localStorage.setItem("ca_user_id", data.user.id);
+    await loadUser(data.user.id);
+    toast.success("Password created. You're all set!");
+    return { success: true };
   }
 
   async function loginWithDualOtp(params: {
@@ -262,6 +297,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unreadCount,
         loading,
         loginWithOtp,
+        loginWithPassword,
+        completePasswordSetup,
         loginWithDualOtp,
         registerStudent,
         recoverAccount,

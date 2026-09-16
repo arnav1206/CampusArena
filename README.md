@@ -27,5 +27,6 @@ CampusArena is a comprehensive Campus Competition Tool designed to simplify the 
 
 - The platform-admin login ID is `arnavgoel1206@gmail.com`. That exact email is the only login that receives the platform-admin role after a successful OTP check. You may override it with `PLATFORM_ADMIN_EMAIL` in private deployment settings.
 - Configure `FAST2SMS_KEY` to send real OTPs to Indian mobile numbers. Configure `GMAIL_USER` and `GMAIL_PASS` to send email OTPs. If either delivery service is unavailable, the app refuses authentication rather than exposing or generating codes in the browser.
+- On a user's first sign-in, CampusArena verifies an OTP and asks them to create a password. Later they may sign in using that password or choose an OTP instead.
 - Set a long, random `AUTH_SESSION_SECRET` before deployment. It signs the administrator session used by the form builder, notification centre, audit log, metrics, and dispute-resolution APIs.
 - The new admin subpages are available at `/admin/forms` and `/admin/notifications` after a platform-admin login.

@@ -37,6 +37,7 @@ import { apiRequestOtp, apiRequestDualOtp, apiValidateOtp } from "@/lib/authClie
 
 type AuthMode = "login" | "register" | "recover";
 type LoginStep = "credentials" | "verify";
+type SignInMethod = "otp" | "password";
 
 const FEATURES = [
   { icon: Trophy, title: "One unified login", desc: "Students, organisers, judges & admin — one campus identity" },
@@ -238,17 +239,22 @@ function OtpSection({
 export default function Login() {
   const [, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { loginWithOtp, loginWithDualOtp, registerStudent, recoverAccount } = useAuth();
+  const { loginWithOtp, loginWithPassword, completePasswordSetup, registerStudent, recoverAccount } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>("login");
 
   // Login: single OTP (email or mobile)
   const [loginMethod, setLoginMethod] = useState<"email" | "mobile">("email");
+  const [signInMethod, setSignInMethod] = useState<SignInMethod>("otp");
   const [loginId, setLoginId] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSetupToken, setPasswordSetupToken] = useState<string | null>(null);
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [loginOtp, setLoginOtp] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginOtpError, setLoginOtpError] = useState("");
+  const [loginRequestError, setLoginRequestError] = useState("");
 
   // Register / Recovery: dual OTP
   const [email, setEmail] = useState("");
@@ -321,6 +327,7 @@ export default function Login() {
       toast.error("Please enter your college email or mobile number.");
       return;
     }
+    setLoginRequestError("");
     setLoginLoading(true);
     try {
       const data = await apiRequestOtp(loginId, loginMethod);
@@ -328,7 +335,7 @@ export default function Login() {
         setLoginOtpSent(true);
         toast.success("Verification code sent!", { description: `Check your ${loginMethod === "email" ? "inbox" : "phone"}` });
       } else {
-        toast.error(data.message || "Failed to send code.");
+        setLoginRequestError(data.message || "Failed to send code.");
       }
     } catch {
       toast.error("An unexpected error occurred while requesting OTP.");
@@ -343,10 +350,37 @@ export default function Login() {
     const result = await loginWithOtp(loginId, loginOtp);
     setLoginLoading(false);
     if (result.success) {
-      setLocation("/");
+      if (result.passwordSetupRequired && result.passwordSetupToken) {
+        setPasswordSetupToken(result.passwordSetupToken);
+        setLoginPassword("");
+        setConfirmPassword("");
+        toast.success("Identity verified. Create your password to finish first-time sign in.");
+      } else setLocation("/");
     } else {
       setLoginOtpError(result.error || "Verification failed");
     }
+  }
+
+  async function handlePasswordLogin() {
+    if (!loginId.trim() || !loginPassword) {
+      setLoginRequestError("Enter your registered email or mobile number and password.");
+      return;
+    }
+    setLoginLoading(true); setLoginRequestError("");
+    const result = await loginWithPassword(loginId, loginPassword);
+    setLoginLoading(false);
+    if (result.success) setLocation("/");
+    else setLoginRequestError(result.error || "Unable to sign in.");
+  }
+
+  async function handlePasswordSetup() {
+    if (!passwordSetupToken) return;
+    if (loginPassword !== confirmPassword) { setLoginRequestError("Passwords do not match."); return; }
+    setLoginLoading(true); setLoginRequestError("");
+    const result = await completePasswordSetup(passwordSetupToken, loginPassword);
+    setLoginLoading(false);
+    if (result.success) setLocation("/");
+    else setLoginRequestError(result.error || "Unable to create password.");
   }
 
   /* ── Dual OTP: send ── */
@@ -561,12 +595,40 @@ export default function Login() {
                       Enter your arena.
                     </h2>
                     <p className="mt-1 text-xs text-[#8a9a88] dark:text-[#9aaa98]">
-                      OTP sent to your registered email or mobile number.
+                      First sign-in uses an OTP. After that, choose an OTP or your password.
                     </p>
                   </div>
 
-                  {/* Method toggle */}
+                  {passwordSetupToken ? (
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-[#c8e890] bg-[#f2fde4] p-3.5 text-xs leading-5 text-[#476d22] dark:border-[#4a6a2c] dark:bg-[#1e3018] dark:text-[#b9dc8e]">
+                        <ShieldCheck size={15} className="mr-1.5 inline" /> Identity verified. Create a password for faster future sign-ins. You can still use OTP any time.
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold text-[#4a6044] dark:text-[#a8c0a4]">Create password</label>
+                        <input type="password" autoComplete="new-password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handlePasswordSetup()} placeholder="At least 10 characters, letters and numbers" className="w-full rounded-xl border border-[#dde2d6] bg-[#fafcf7] px-3.5 py-3 text-sm outline-none transition focus:border-[#a7ca61] focus:ring-2 focus:ring-[#dff2ab] dark:border-[#324133] dark:bg-[#101a11] dark:text-[#e8f5e0]" />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold text-[#4a6044] dark:text-[#a8c0a4]">Confirm password</label>
+                        <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handlePasswordSetup()} placeholder="Re-enter your password" className="w-full rounded-xl border border-[#dde2d6] bg-[#fafcf7] px-3.5 py-3 text-sm outline-none transition focus:border-[#a7ca61] focus:ring-2 focus:ring-[#dff2ab] dark:border-[#324133] dark:bg-[#101a11] dark:text-[#e8f5e0]" />
+                      </div>
+                      {loginRequestError && <p className="flex items-center gap-1 text-[11px] font-semibold text-[#c03030] dark:text-[#f08080]"><XCircle size={12} /> {loginRequestError}</p>}
+                      <button type="button" disabled={loginLoading || loginPassword.length < 10 || !confirmPassword} onClick={handlePasswordSetup} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#b8f34a] py-3.5 text-sm font-extrabold text-[#172017] shadow-[0_5px_0_#7eaa2a] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50">
+                        {loginLoading ? <><Spinner /> Saving password…</> : <>Create password & enter <ArrowRight size={15} /></>}
+                      </button>
+                    </div>
+                  ) : <>
+
                   <div className="grid grid-cols-2 rounded-xl bg-[#f2f4ee] p-1 text-xs font-bold dark:bg-[#1e2820]">
+                    {(["otp", "password"] as const).map((method) => (
+                      <button key={method} type="button" onClick={() => { setSignInMethod(method); setLoginOtpSent(false); setLoginRequestError(""); }} className={["rounded-lg py-2 transition", signInMethod === method ? "bg-white text-[#1e2e1e] shadow-sm dark:bg-[#2c3e2e] dark:text-[#e8f5e0]" : "text-[#7a887a] dark:text-[#8a9c8a]"].join(" ")}>
+                        {method === "otp" ? "One-time code" : "Password"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Method toggle */}
+                  {signInMethod === "otp" && <div className="grid grid-cols-2 rounded-xl bg-[#f2f4ee] p-1 text-xs font-bold dark:bg-[#1e2820]">
                     {(["email", "mobile"] as const).map((m) => (
                       <button
                         key={m}
@@ -582,9 +644,9 @@ export default function Login() {
                         {m === "email" ? "College Email" : "Mobile OTP"}
                       </button>
                     ))}
-                  </div>
+                  </div>}
 
-                  {!loginOtpSent ? (
+                  {signInMethod === "otp" && (!loginOtpSent ? (
                     <>
                       <div>
                         <label className="mb-1.5 block text-xs font-bold text-[#4a6044] dark:text-[#a8c0a4]">
@@ -607,10 +669,11 @@ export default function Login() {
                         type="button"
                         disabled={loginLoading}
                         onClick={handleLoginSendOtp}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#172017] py-3.5 text-sm font-bold text-white shadow-[0_5px_0_#0c110c] transition hover:-translate-y-0.5 active:translate-y-0 active:shadow-none disabled:opacity-60 dark:bg-[#b8f34a] dark:text-[#172017] dark:shadow-[0_5px_0_#7eaa2a]"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#b8f34a] py-3.5 text-sm font-extrabold text-[#172017] shadow-[0_5px_0_#7eaa2a] transition hover:-translate-y-0.5 active:translate-y-0 active:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {loginLoading ? <><Spinner /> Sending…</> : <>Send One-Time Code <ArrowRight size={15} /></>}
                       </button>
+                      {loginRequestError && <p className="flex items-center gap-1 text-[11px] font-semibold text-[#c03030] dark:text-[#f08080]"><XCircle size={12} /> {loginRequestError}</p>}
                     </>
                   ) : (
                     <>
@@ -657,7 +720,26 @@ export default function Login() {
                         ← Change email / mobile
                       </button>
                     </>
+                  ))}
+
+                  {signInMethod === "password" && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold text-[#4a6044] dark:text-[#a8c0a4]">Registered email or mobile number</label>
+                        <input value={loginId} onChange={(e) => setLoginId(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handlePasswordLogin()} autoComplete="username" placeholder="you@campus.edu or +91 98765 43210" className="w-full rounded-xl border border-[#dde2d6] bg-[#fafcf7] px-3.5 py-3 text-sm outline-none transition focus:border-[#a7ca61] focus:ring-2 focus:ring-[#dff2ab] dark:border-[#324133] dark:bg-[#101a11] dark:text-[#e8f5e0]" />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold text-[#4a6044] dark:text-[#a8c0a4]">Password</label>
+                        <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handlePasswordLogin()} autoComplete="current-password" placeholder="Enter your password" className="w-full rounded-xl border border-[#dde2d6] bg-[#fafcf7] px-3.5 py-3 text-sm outline-none transition focus:border-[#a7ca61] focus:ring-2 focus:ring-[#dff2ab] dark:border-[#324133] dark:bg-[#101a11] dark:text-[#e8f5e0]" />
+                      </div>
+                      {loginRequestError && <p className="flex items-center gap-1 text-[11px] font-semibold text-[#c03030] dark:text-[#f08080]"><XCircle size={12} /> {loginRequestError}</p>}
+                      <button type="button" disabled={loginLoading || !loginId.trim() || !loginPassword} onClick={handlePasswordLogin} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#b8f34a] py-3.5 text-sm font-extrabold text-[#172017] shadow-[0_5px_0_#7eaa2a] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50">
+                        {loginLoading ? <><Spinner /> Signing in…</> : <>Sign in with password <ArrowRight size={15} /></>}
+                      </button>
+                      <p className="text-center text-[11px] leading-5 text-[#879286] dark:text-[#9aaa98]">First time here? Choose <strong>One-time code</strong> to verify your identity and create a password.</p>
+                    </div>
                   )}
+                  </>}
                 </animated.div>
               )}
 

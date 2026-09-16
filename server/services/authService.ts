@@ -68,10 +68,29 @@ function validateStoredOtp(identifier: string, code: string): { success: boolean
   return { success: true };
 }
 
-function createSessionToken(userId: string) {
-  const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + SESSION_TTL_MS })).toString("base64url");
+function createToken(userId: string, purpose: "session" | "password-setup") {
+  const ttl = purpose === "password-setup" ? 15 * 60 * 1000 : SESSION_TTL_MS;
+  const payload = Buffer.from(JSON.stringify({ sub: userId, purpose, exp: Date.now() + ttl })).toString("base64url");
   const signature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
   return `${payload}.${signature}`;
+}
+
+function hashPassword(password: string) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  return `${salt}:${crypto.scryptSync(password, salt, 64).toString("hex")}`;
+}
+
+function passwordMatches(password: string, stored: string) {
+  const [salt, expected] = stored.split(":");
+  if (!salt || !expected) return false;
+  const actual = crypto.scryptSync(password, salt, 64).toString("hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
+
+function validatePassword(password: string): string | undefined {
+  if (password.length < 10) return "Use at least 10 characters.";
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return "Include at least one letter and one number.";
+  return undefined;
 }
 
 // ── Send email OTP ──
@@ -122,17 +141,25 @@ async function sendSmsOtp(mobile: string, otp: string): Promise<boolean> {
 }
 
 export class AuthService {
-  static getSessionUser(token?: string): User | undefined {
+  private static getTokenUser(token: string | undefined, expectedPurpose: "session" | "password-setup"): User | undefined {
     if (!token) return undefined;
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return undefined;
     const expected = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
     if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return undefined;
     try {
-      const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: string; exp?: number };
-      if (!data.sub || !data.exp || data.exp < Date.now()) return undefined;
+      const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: string; purpose?: string; exp?: number };
+      if (!data.sub || data.purpose !== expectedPurpose || !data.exp || data.exp < Date.now()) return undefined;
       return userHelpers.findById(data.sub) as User | undefined;
     } catch { return undefined; }
+  }
+
+  static getSessionUser(token?: string): User | undefined {
+    return this.getTokenUser(token, "session");
+  }
+
+  static getPasswordSetupUser(token?: string): User | undefined {
+    return this.getTokenUser(token, "password-setup");
   }
   // ──────────────────────────────────────────────────────────────────────────
   // Request a single OTP (login flow — email OR mobile)
@@ -216,7 +243,7 @@ export class AuthService {
   static verifyOtp(
     identifier: string,
     code: string
-  ): { success: boolean; user?: User; sessionToken?: string; error?: string } {
+  ): { success: boolean; user?: User; sessionToken?: string; passwordSetupRequired?: boolean; passwordSetupToken?: string; error?: string } {
     const cleanId = identifier.trim().toLowerCase().replace(/\s+/g, "");
     const validation = validateStoredOtp(cleanId, code);
     if (!validation.success) return validation;
@@ -253,7 +280,32 @@ export class AuthService {
     if (cleanId === PLATFORM_ADMIN_EMAIL && authenticatedUser.role !== "admin") {
       authenticatedUser = userHelpers.updateRole(authenticatedUser.id, "admin") as User;
     }
-    return { success: true, user: authenticatedUser, sessionToken: createSessionToken(authenticatedUser.id) };
+    const existing = userHelpers.findForPasswordLogin(authenticatedUser.email);
+    if (!existing?.passwordHash) {
+      return {
+        success: true,
+        user: authenticatedUser,
+        passwordSetupRequired: true,
+        passwordSetupToken: createToken(authenticatedUser.id, "password-setup"),
+      };
+    }
+    return { success: true, user: authenticatedUser, sessionToken: createToken(authenticatedUser.id, "session") };
+  }
+
+  static completePasswordSetup(params: { passwordSetupToken?: string; password: string }): { success: boolean; user?: User; sessionToken?: string; error?: string } {
+    const user = this.getPasswordSetupUser(params.passwordSetupToken);
+    if (!user) return { success: false, error: "Your password setup session expired. Sign in with OTP again." };
+    const error = validatePassword(params.password);
+    if (error) return { success: false, error };
+    const updated = userHelpers.setPassword(user.id, hashPassword(params.password)) as User;
+    return { success: true, user: updated, sessionToken: createToken(updated.id, "session") };
+  }
+
+  static loginWithPassword(identifier: string, password: string): { success: boolean; user?: User; sessionToken?: string; error?: string } {
+    const record = userHelpers.findForPasswordLogin(identifier);
+    if (!record?.passwordHash) return { success: false, error: "Use OTP to sign in the first time and create a password." };
+    if (!passwordMatches(password, record.passwordHash)) return { success: false, error: "Incorrect email/mobile number or password." };
+    return { success: true, user: record.user as User, sessionToken: createToken(record.user.id, "session") };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -303,7 +355,7 @@ export class AuthService {
       user = userHelpers.findById(user.id)!;
     }
 
-    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
+    return { success: true, user: user as User, sessionToken: createToken(user.id, "session") };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -369,7 +421,7 @@ export class AuthService {
     });
 
     console.log(`[AUTH] ✅ New student registered: ${user.name} (${user.email})`);
-    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
+    return { success: true, user: user as User, sessionToken: createToken(user.id, "session") };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -405,7 +457,7 @@ export class AuthService {
     otpHelpers.delete(cleanMobile);
 
     console.log(`[AUTH] 🔄 Account recovered: ${user.name}`);
-    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
+    return { success: true, user: user as User, sessionToken: createToken(user.id, "session") };
   }
 
   // ──────────────────────────────────────────────────────────────────────────

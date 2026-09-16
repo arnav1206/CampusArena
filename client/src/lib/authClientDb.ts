@@ -71,7 +71,7 @@ export async function apiValidateOtp(identifier: string, code: string): Promise<
 export async function apiVerifyOtp(
   identifier: string,
   code: string
-): Promise<{ success: boolean; user?: User; sessionToken?: string; error?: string }> {
+): Promise<{ success: boolean; user?: User; sessionToken?: string; passwordSetupRequired?: boolean; passwordSetupToken?: string; error?: string }> {
   try {
     const res = await fetch("/api/auth/otp/verify", {
       method: "POST",
@@ -84,6 +84,26 @@ export async function apiVerifyOtp(
     }
   } catch {}
   return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." };
+}
+
+export async function apiLoginWithPassword(identifier: string, password: string): Promise<{ success: boolean; user?: User; sessionToken?: string; error?: string }> {
+  try {
+    const res = await fetch("/api/auth/password/login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }),
+    });
+    const data = await res.json();
+    return res.ok ? data : { success: false, error: data.error || "Unable to sign in." };
+  } catch { return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." }; }
+}
+
+export async function apiSetupPassword(passwordSetupToken: string, password: string): Promise<{ success: boolean; user?: User; sessionToken?: string; error?: string }> {
+  try {
+    const res = await fetch("/api/auth/password/setup", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passwordSetupToken, password }),
+    });
+    const data = await res.json();
+    return res.ok ? data : { success: false, error: data.error || "Unable to save password." };
+  } catch { return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." }; }
 }
 
 export async function apiVerifyDualOtp(params: {

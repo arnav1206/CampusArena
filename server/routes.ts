@@ -52,6 +52,21 @@ apiRouter.post("/auth/otp/validate", (req: Request, res: Response) => {
   res.json(result);
 });
 
+apiRouter.post("/auth/password/login", (req: Request, res: Response) => {
+  const result = AuthService.loginWithPassword(req.body.identifier || "", req.body.password || "");
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
+});
+
+apiRouter.post("/auth/password/setup", (req: Request, res: Response) => {
+  const result = AuthService.completePasswordSetup({
+    passwordSetupToken: req.body.passwordSetupToken,
+    password: req.body.password || "",
+  });
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
+});
+
 apiRouter.post("/auth/dual-otp/request", async (req: Request, res: Response) => {
   const { email, mobile } = req.body;
   if (!email || !mobile) {
