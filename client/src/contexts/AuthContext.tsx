@@ -88,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await apiVerifyOtp(identifier, code);
       setLoading(false);
       if (data.success && data.user) {
+        if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -112,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await apiVerifyDualOtp(params);
       setLoading(false);
       if (data.success && data.user) {
+        if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -131,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await apiRegisterStudent(params);
       setLoading(false);
       if (data.success && data.user) {
+        if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -154,6 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const data = await res.json();
       if (res.ok && data.user) {
+        if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
@@ -239,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   function logout() {
     localStorage.removeItem("ca_user_id");
+    localStorage.removeItem("ca_session_token");
     setUser(null);
     setProfile(null);
     setNotifications([]);

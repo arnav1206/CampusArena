@@ -25,8 +25,10 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
+import { getSessionHeaders } from "../lib/authClientDb";
 
 /* ── tiny helpers (same design tokens as Home.tsx) ─────────────────────── */
 function cn(...cls: Array<string | false | null | undefined>) {
@@ -168,6 +170,7 @@ function AuditLogRow({ entry }: { entry: any }) {
 export default function AdminPortal() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const [, setLocation] = useLocation();
 
   const [metrics, setMetrics] = useState<any>(null);
   const [disputes, setDisputes] = useState<any[]>([]);
@@ -188,9 +191,9 @@ export default function AdminPortal() {
     setLoading(true);
     try {
       const [metricsRes, disputesRes, auditRes, compsRes] = await Promise.all([
-        fetch("/api/admin/metrics"),
-        fetch("/api/admin/disputes"),
-        fetch("/api/admin/audit-logs?limit=50"),
+        fetch("/api/admin/metrics", { headers: getSessionHeaders() }),
+        fetch("/api/admin/disputes", { headers: getSessionHeaders() }),
+        fetch("/api/admin/audit-logs?limit=50", { headers: getSessionHeaders() }),
         fetch("/api/competitions"),
       ]);
       if (metricsRes.ok) {
@@ -214,10 +217,10 @@ export default function AdminPortal() {
 
   async function handleResolve(disputeId: string, resolution: string) {
     try {
-      const res = await fetch(`/api/admin/disputes/${disputeId}/resolve`, {
+      const res = await fetch("/api/admin/disputes/resolve", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminId: user?.id ?? "u_admin", resolution }),
+        headers: { "Content-Type": "application/json", ...getSessionHeaders() },
+        body: JSON.stringify({ disputeId, resolvedByUserId: user?.id, resolution, status: "resolved" }),
       });
       if (!res.ok) throw new Error();
       toast.success("Dispute resolved.");
@@ -292,7 +295,13 @@ export default function AdminPortal() {
               <h1 className="font-display text-[34px] font-extrabold leading-[.95] tracking-[-0.07em] sm:text-[44px]">Platform<br /><span className="text-[#b8f34a]">command centre.</span></h1>
               <p className="mt-3 max-w-[500px] text-sm leading-6 text-white/60">One view for every metric, dispute, and audit event across all competitions on campus.</p>
             </div>
-            <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 gap-2">
+              <Button variant="outline" onClick={() => setLocation("/admin/forms")}>
+                <FileText size={15} /> Form builder
+              </Button>
+              <Button variant="outline" onClick={() => setLocation("/admin/notifications")}>
+                <Bell size={15} /> Notifications
+              </Button>
               <Button variant="outline" onClick={() => toast("Exporting platform data…")}>
                 <Globe2 size={15} /> Export report
               </Button>

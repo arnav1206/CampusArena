@@ -33,6 +33,47 @@ export class NotificationService {
     });
   }
 
+  /** Platform-wide notice used by the administrator notification centre. */
+  static broadcastPlatformNotice(params: {
+    senderUserId: string;
+    title: string;
+    message: string;
+    targetRole?: "all" | "student" | "organizer" | "faculty" | "judge";
+  }): { recipientCount: number } {
+    const title = params.title.trim();
+    const message = params.message.trim();
+    if (!title || !message) throw new Error("A title and message are required.");
+    const now = new Date().toISOString();
+    let recipientCount = 0;
+    db.update((draft) => {
+      const recipients = draft.users.filter((user) =>
+        user.id !== params.senderUserId && (params.targetRole || "all") === "all" ||
+        user.id !== params.senderUserId && user.role === params.targetRole
+      );
+      recipientCount = recipients.length;
+      recipients.forEach((recipient, index) => draft.notifications.unshift({
+        id: `notif_${Date.now()}_${index}_${recipient.id}`,
+        userId: recipient.id,
+        category: "announcements",
+        title,
+        message,
+        isRead: false,
+        createdAt: now,
+      }));
+      draft.auditLogs.unshift({
+        id: `aud_${Date.now()}`,
+        actorUserId: params.senderUserId,
+        actorName: "Platform Admin",
+        action: "PLATFORM_NOTICE_BROADCAST",
+        entityType: "PlatformNotification",
+        entityId: `notice_${Date.now()}`,
+        details: `Broadcast \"${title}\" to ${recipientCount} ${params.targetRole || "all"} users.`,
+        timestamp: now,
+      });
+    });
+    return { recipientCount };
+  }
+
   static getAnnouncementsByCompetition(competitionId: string): Announcement[] {
     return db
       .get()

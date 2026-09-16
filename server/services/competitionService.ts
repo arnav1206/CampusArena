@@ -38,6 +38,58 @@ export class CompetitionService {
     return db.get().registrationFields.filter((f) => f.competitionId === competitionId);
   }
 
+  static replaceRegistrationFields(params: {
+    competitionId: string;
+    actorUserId: string;
+    fields: Array<Partial<RegistrationField>>;
+  }): { success: boolean; fields?: RegistrationField[]; error?: string } {
+    const { competitionId, actorUserId, fields } = params;
+    const allowedTypes: RegistrationField["type"][] = ["short_text", "long_text", "rich_text", "dropdown", "checkbox", "file_upload"];
+    const comp = this.getCompetitionById(competitionId);
+    if (!comp) return { success: false, error: "Competition not found." };
+    if (!Array.isArray(fields) || fields.length > 30) return { success: false, error: "A registration form can contain between 0 and 30 fields." };
+
+    const normalized: RegistrationField[] = [];
+    for (let index = 0; index < fields.length; index += 1) {
+      const field = fields[index];
+      const label = field.label?.trim();
+      const type = field.type;
+      if (!label || label.length > 120 || !type || !allowedTypes.includes(type)) {
+        return { success: false, error: `Field ${index + 1} needs a valid label and type.` };
+      }
+      const options = (field.options || []).map((option) => option.trim()).filter(Boolean).slice(0, 20);
+      if ((type === "dropdown" || type === "checkbox") && options.length === 0) {
+        return { success: false, error: `Field ${index + 1} needs at least one option.` };
+      }
+      normalized.push({
+        id: field.id || `field_${Date.now()}_${index}`,
+        competitionId,
+        label,
+        type,
+        options: options.length ? options : undefined,
+        required: Boolean(field.required),
+        placeholder: field.placeholder?.trim().slice(0, 160) || undefined,
+      });
+    }
+
+    db.update((draft) => {
+      draft.registrationFields = draft.registrationFields.filter((field) => field.competitionId !== competitionId);
+      draft.registrationFields.push(...normalized);
+      draft.auditLogs.unshift({
+        id: `aud_${Date.now()}`,
+        competitionId,
+        actorUserId,
+        actorName: "Platform Admin",
+        action: "REGISTRATION_FORM_UPDATED",
+        entityType: "RegistrationForm",
+        entityId: competitionId,
+        details: `Saved ${normalized.length} registration form fields for ${comp.title}.`,
+        timestamp: new Date().toISOString(),
+      });
+    });
+    return { success: true, fields: normalized };
+  }
+
   static getReadiness(competitionId: string): ReadinessReport | null {
     const comp = this.getCompetitionById(competitionId);
     if (!comp) return null;

@@ -66,6 +66,7 @@ import { PaymentModal } from "../components/student/PaymentModal";
 import { ShowcaseModal } from "../components/student/ShowcaseModal";
 import { StudentProfileModal } from "../components/student/StudentProfileModal";
 import { SubmissionModal } from "../components/student/SubmissionModal";
+import { NotificationsPanel } from "../components/NotificationsPanel";
 import type { Competition, Team, Round } from "@shared/types";
 
 /* ── types ──────────────────────────────────────────────────────────────── */
@@ -1432,6 +1433,7 @@ export default function Home() {
   const [showDigitalPass, setShowDigitalPass] = useState(false);
   const [submissionTeam, setSubmissionTeam] = useState<any | null>(null);
   const [showShowcase, setShowShowcase] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // ── set workspace by role on first load
   useEffect(() => {
@@ -1479,7 +1481,7 @@ export default function Home() {
   const goStudent = () => { setWorkspace("student"); setStudentView("home"); setDetail(null); setTeamDetail(false); };
   const openTeam = () => { if (workspace === "student") setTeamDetail(true); else setOrganizerView("team"); };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   // ── if user is judge, show judge portal
   if (user?.role === "judge") {
@@ -1525,7 +1527,7 @@ export default function Home() {
         setWorkspace={(v) => v === "student" ? goStudent() : goOrganizer()}
         onMobileMenu={() => setMobileOpen(true)}
         onOpenProfile={() => setShowProfile(true)}
-        onOpenNotifications={() => toast(unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}.` : "You're all caught up.")}
+        onOpenNotifications={() => setShowNotifications(true)}
         unreadCount={unreadCount}
       />
 
@@ -1550,6 +1552,7 @@ export default function Home() {
           </div>
         </main>
       </div>
+      <NotificationsPanel open={showNotifications} onClose={() => setShowNotifications(false)} />
 
       {/* Registration modal */}
       {registering && <RegisterModal competition={registering} close={() => setRegistering(null)} onFindTeam={() => { setRegistering(null); setShowFindTeam(true); }} />}

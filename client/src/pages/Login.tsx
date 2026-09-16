@@ -33,7 +33,7 @@ import { useLocation } from "wouter";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
-import { apiRequestOtp, apiRequestDualOtp } from "@/lib/authClientDb";
+import { apiRequestOtp, apiRequestDualOtp, apiValidateOtp } from "@/lib/authClientDb";
 
 type AuthMode = "login" | "register" | "recover";
 type LoginStep = "credentials" | "verify";
@@ -238,7 +238,7 @@ function OtpSection({
 export default function Login() {
   const [, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { loginWithOtp, loginWithDualOtp, registerStudent, recoverAccount, switchUser } = useAuth();
+  const { loginWithOtp, loginWithDualOtp, registerStudent, recoverAccount } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>("login");
 
@@ -267,7 +267,6 @@ export default function Login() {
   const [mobileCooldown, setMobileCooldown] = useState(0);
   const [verifyingEmail, setVerifyingEmail] = useState(false);
   const [verifyingMobile, setVerifyingMobile] = useState(false);
-  const [dualOtpTokens, setDualOtpTokens] = useState<{ emailOtp: string; mobileOtp: string } | null>(null);
 
   // Register extra fields
   const [regName, setRegName] = useState("");
@@ -327,12 +326,7 @@ export default function Login() {
       const data = await apiRequestOtp(loginId, loginMethod);
       if (data.success) {
         setLoginOtpSent(true);
-        if (data.devOtp) {
-          setLoginOtp(data.devOtp);
-          toast.success("Verification Code Generated!", { description: `Your OTP is: ${data.devOtp}` });
-        } else {
-          toast.success("Verification code sent!", { description: `Check your ${loginMethod === "email" ? "inbox" : "phone"}` });
-        }
+        toast.success("Verification code sent!", { description: `Check your ${loginMethod === "email" ? "inbox" : "phone"}` });
       } else {
         toast.error(data.message || "Failed to send code.");
       }
@@ -349,7 +343,7 @@ export default function Login() {
     const result = await loginWithOtp(loginId, loginOtp);
     setLoginLoading(false);
     if (result.success) {
-      setLocation(loginId.toLowerCase().includes("admin") ? "/admin" : "/");
+      setLocation("/");
     } else {
       setLoginOtpError(result.error || "Verification failed");
     }
@@ -370,19 +364,9 @@ export default function Login() {
         setMobileOtpSent(true);
         setEmailCooldown(30);
         setMobileCooldown(30);
-        setDualOtpTokens({
-          emailOtp: data.devEmailOtp || "",
-          mobileOtp: data.devMobileOtp || "",
+        toast.success("OTPs dispatched to your email and mobile!", {
+          description: "Check your inbox and SMS",
         });
-        if (data.devEmailOtp || data.devMobileOtp) {
-          toast.success("Verification OTPs Generated!", {
-            description: `Email OTP: ${data.devEmailOtp || "Sent"} | Mobile OTP: ${data.devMobileOtp || "Sent"}`,
-          });
-        } else {
-          toast.success("OTPs dispatched to your email and mobile!", {
-            description: "Check your inbox and SMS",
-          });
-        }
       } else {
         toast.error(data.message || "Failed to send OTPs.");
       }
@@ -395,44 +379,26 @@ export default function Login() {
   }
 
 
-  function verifyEmailOtp() {
+  async function verifyEmailOtp() {
     setVerifyingEmail(true);
     setEmailOtpError("");
-    setTimeout(() => {
-      const expected = dualOtpTokens?.emailOtp;
-      if (expected && emailOtp === expected) {
-        setEmailVerified(true);
-        setEmailOtpError("");
-        toast.success("Email OTP verified ✓");
-      } else if (expected) {
-        setEmailOtpError("Incorrect email OTP. Check the code sent to your inbox.");
-      } else {
-        // No devOtp — means a real email was sent; verify via server
-        setEmailVerified(true);
-        toast.success("Email OTP accepted ✓");
-      }
-      setVerifyingEmail(false);
-    }, 600);
+    const result = await apiValidateOtp(email, emailOtp);
+    if (result.success) {
+      setEmailVerified(true);
+      toast.success("Email OTP verified ✓");
+    } else setEmailOtpError(result.error || "Incorrect email OTP. Check the code sent to your inbox.");
+    setVerifyingEmail(false);
   }
 
-  function verifyMobileOtp() {
+  async function verifyMobileOtp() {
     setVerifyingMobile(true);
     setMobileOtpError("");
-    setTimeout(() => {
-      const expected = dualOtpTokens?.mobileOtp;
-      if (expected && mobileOtp === expected) {
-        setMobileVerified(true);
-        setMobileOtpError("");
-        toast.success("Mobile OTP verified ✓");
-      } else if (expected) {
-        setMobileOtpError("Incorrect mobile OTP. Check the code sent to your phone.");
-      } else {
-        // No devOtp — means a real SMS was sent; verify via server
-        setMobileVerified(true);
-        toast.success("Mobile OTP accepted ✓");
-      }
-      setVerifyingMobile(false);
-    }, 600);
+    const result = await apiValidateOtp(mobile, mobileOtp);
+    if (result.success) {
+      setMobileVerified(true);
+      toast.success("Mobile OTP verified ✓");
+    } else setMobileOtpError(result.error || "Incorrect mobile OTP. Check the code sent to your phone.");
+    setVerifyingMobile(false);
   }
 
   /* ── Register ── */
@@ -477,12 +443,6 @@ export default function Login() {
     else toast.error(result.error || "Recovery failed");
   }
 
-  /* ── Quick login ── */
-  async function handleQuickLogin(userId: string) {
-    await switchUser(userId);
-    setLocation(userId === "u_admin" ? "/admin" : "/");
-  }
-
   function resetDualOtp() {
     setEmail(""); setMobile("");
     setEmailOtpSent(false); setMobileOtpSent(false);
@@ -490,7 +450,6 @@ export default function Login() {
     setEmailVerified(false); setMobileVerified(false);
     setEmailOtpError(""); setMobileOtpError("");
     setEmailCooldown(0); setMobileCooldown(0);
-    setDualOtpTokens(null);
   }
 
   const bothVerified = emailVerified && mobileVerified;
@@ -772,7 +731,7 @@ export default function Login() {
                       <div className="space-y-3">
                       <OtpSection
                           label="Email OTP" icon={Mail}
-                          hint={dualOtpTokens?.emailOtp ? `Dev mode — code: ${dualOtpTokens.emailOtp}` : `6-digit code sent to ${email}. Check your inbox.`}
+                          hint={`6-digit code sent to ${email}. Check your inbox.`}
                           value={emailOtp} onChange={(v) => { setEmailOtp(v); setEmailOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingEmail} sent={emailOtpSent} cooldown={emailCooldown}
                           verified={emailVerified} error={emailOtpError}
@@ -780,7 +739,7 @@ export default function Login() {
                         />
                         <OtpSection
                           label="Mobile OTP" icon={Smartphone}
-                          hint={dualOtpTokens?.mobileOtp ? `Dev mode — code: ${dualOtpTokens.mobileOtp}` : `6-digit code sent to ${mobile}. Check your phone.`}
+                          hint={`6-digit code sent to ${mobile}. Check your phone.`}
                           value={mobileOtp} onChange={(v) => { setMobileOtp(v); setMobileOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingMobile} sent={mobileOtpSent} cooldown={mobileCooldown}
                           verified={mobileVerified} error={mobileOtpError}
@@ -852,7 +811,7 @@ export default function Login() {
                       <div className="space-y-3">
                         <OtpSection
                           label="Email OTP" icon={Mail}
-                          hint={`Code sent to ${email}. Demo: ${dualOtpTokens?.emailOtp || "123456"}`}
+                          hint={`6-digit code sent to ${email}. Check your inbox.`}
                           value={emailOtp} onChange={(v) => { setEmailOtp(v); setEmailOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingEmail} sent={emailOtpSent} cooldown={emailCooldown}
                           verified={emailVerified} error={emailOtpError}
@@ -860,7 +819,7 @@ export default function Login() {
                         />
                         <OtpSection
                           label="Mobile OTP" icon={Smartphone}
-                          hint={`Code sent to ${mobile}. Demo: ${dualOtpTokens?.mobileOtp || "654321"}`}
+                          hint={`6-digit code sent to ${mobile}. Check your phone.`}
                           value={mobileOtp} onChange={(v) => { setMobileOtp(v); setMobileOtpError(""); }}
                           onSend={sendDualOtps} sending={sendingMobile} sent={mobileOtpSent} cooldown={mobileCooldown}
                           verified={mobileVerified} error={mobileOtpError}

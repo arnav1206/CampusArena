@@ -22,3 +22,10 @@ CampusArena is a comprehensive Campus Competition Tool designed to simplify the 
 2. Install dependencies: `npm install`
 3. Run the development server: `npm run dev`
 4. The application will be available at `http://localhost:5173`
+
+## Administrator access and real OTP delivery
+
+- The starter platform-admin login ID is `platform.admin@campusarena.in`. Before deployment, replace `PLATFORM_ADMIN_EMAIL` in your private `.env` with an email inbox you control. That exact email is the only login that receives the platform-admin role after a successful OTP check.
+- Configure `FAST2SMS_KEY` to send real OTPs to Indian mobile numbers. Configure `GMAIL_USER` and `GMAIL_PASS` to send email OTPs. If either delivery service is unavailable, the app refuses authentication rather than exposing or generating codes in the browser.
+- Set a long, random `AUTH_SESSION_SECRET` before deployment. It signs the administrator session used by the form builder, notification centre, audit log, metrics, and dispute-resolution APIs.
+- The new admin subpages are available at `/admin/forms` and `/admin/notifications` after a platform-admin login.

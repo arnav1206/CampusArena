@@ -18,6 +18,15 @@ import { db } from "./db";
 
 export const apiRouter = Router();
 
+function requireAdmin(req: Request, res: Response): boolean {
+  const user = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!user || user.role !== "admin") {
+    res.status(401).json({ success: false, error: "A valid platform-admin session is required." });
+    return false;
+  }
+  return true;
+}
+
 // -----------------------------------------------------------------------------
 // 1. Authentication & Role Management
 // -----------------------------------------------------------------------------
@@ -33,6 +42,13 @@ apiRouter.post("/auth/otp/verify", (req: Request, res: Response) => {
   if (!result.success) {
     return res.status(400).json(result);
   }
+  res.json(result);
+});
+
+apiRouter.post("/auth/otp/validate", (req: Request, res: Response) => {
+  const { identifier, code } = req.body;
+  const result = AuthService.validateOtp(identifier, code);
+  if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
 
@@ -143,6 +159,23 @@ apiRouter.get("/competitions/:id", (req: Request, res: Response) => {
   const readiness = CompetitionService.getReadiness(comp.id);
   const capacity = CompetitionService.getCapacityMetrics(comp.id);
   res.json({ competition: comp, tracks, fields, readiness, capacity });
+});
+
+apiRouter.get("/competitions/:id/registration-fields", (req: Request, res: Response) => {
+  const competition = CompetitionService.getCompetitionById(req.params.id);
+  if (!competition) return res.status(404).json({ error: "Competition not found" });
+  res.json({ fields: CompetitionService.getRegistrationFields(competition.id) });
+});
+
+apiRouter.put("/competitions/:id/registration-fields", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const result = CompetitionService.replaceRegistrationFields({
+    competitionId: req.params.id,
+    actorUserId: req.body.actorUserId || "system",
+    fields: req.body.fields,
+  });
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
 });
 
 apiRouter.post("/competitions/draft", (req: Request, res: Response) => {
@@ -480,6 +513,16 @@ apiRouter.post("/users/:userId/notifications/read-all", (req: Request, res: Resp
   res.json({ success: true });
 });
 
+apiRouter.post("/admin/notifications/broadcast", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const result = NotificationService.broadcastPlatformNotice(req.body);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Unable to send notice." });
+  }
+});
+
 apiRouter.get("/competitions/:id/announcements", (req: Request, res: Response) => {
   const announcements = NotificationService.getAnnouncementsByCompetition(req.params.id);
   res.json({ announcements });
@@ -497,23 +540,27 @@ apiRouter.post("/competitions/:id/announcements/broadcast", (req: Request, res: 
 // 11. Admin Portal, Disputes & Audit Logs
 // -----------------------------------------------------------------------------
 apiRouter.get("/admin/metrics", (_req: Request, res: Response) => {
+  if (!requireAdmin(_req, res)) return;
   const metrics = AdminService.getPlatformMetrics();
   res.json({ metrics });
 });
 
 apiRouter.get("/admin/disputes", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
   const compId = req.query.competitionId as string | undefined;
   const disputes = AdminService.getDisputes(compId);
   res.json({ disputes });
 });
 
 apiRouter.post("/admin/disputes/resolve", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
   const result = AdminService.resolveDispute(req.body);
   if (!result.success) return res.status(400).json(result);
   res.json(result);
 });
 
 apiRouter.get("/admin/audit-logs", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
   const logs = AdminService.getAuditLogs({
     competitionId: req.query.competitionId as string,
     actorUserId: req.query.actorUserId as string,

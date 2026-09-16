@@ -11,6 +11,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import AdminPortal from "./pages/AdminPortal";
+import AdminNotifications from "./pages/AdminNotifications";
+import FormBuilder from "./pages/FormBuilder";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import ProfilePage from "./pages/ProfilePage";
@@ -72,6 +74,8 @@ function Router() {
           <animated.div style={style} key={loc}>
             <Switch>
               <Route path="/profile" component={ProfilePage} />
+              <Route path="/admin/forms" component={FormBuilder} />
+              <Route path="/admin/notifications" component={AdminNotifications} />
               <Route path="/admin" component={AdminPortal} />
               <Route component={AdminPortal} />
             </Switch>
@@ -89,7 +93,6 @@ function Router() {
           <Switch>
             <Route path="/login" component={Login} />
             <Route path="/profile" component={ProfilePage} />
-            <Route path="/admin" component={AdminPortal} />
             <Route path="/" component={Home} />
             <Route component={Home} />
           </Switch>

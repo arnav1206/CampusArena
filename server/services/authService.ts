@@ -5,8 +5,8 @@
 // OTP Delivery:
 //   - If GMAIL_USER and GMAIL_PASS are set in .env, OTPs are emailed via Gmail.
 //   - If FAST2SMS_KEY is set, OTPs are sent via SMS (Fast2SMS, free Indian SMS API).
-//   - Otherwise, OTP is printed to the server console and returned in the API
-//     response as `devOtp` so you can copy-paste it during testing.
+//   - Delivery credentials are mandatory outside local development. Codes are
+//     never returned to the browser or written to logs.
 //
 // =============================================================================
 
@@ -40,6 +40,38 @@ async function getEmailTransporter() {
 // ── Generate a secure random 6-digit OTP ──
 function generateOtp(): string {
   return String(crypto.randomInt(100000, 999999));
+}
+
+const MAX_OTP_ATTEMPTS = 5;
+const PLATFORM_ADMIN_EMAIL = (process.env.PLATFORM_ADMIN_EMAIL || "platform.admin@campusarena.in")
+  .trim()
+  .toLowerCase();
+const PLATFORM_ADMIN_NAME = process.env.PLATFORM_ADMIN_NAME || "Platform Admin";
+const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+function isValidMobile(value: string) {
+  return value.replace(/\D/g, "").length === 10;
+}
+
+function validateStoredOtp(identifier: string, code: string): { success: boolean; error?: string } {
+  const entry = otpHelpers.get(identifier);
+  if (!entry) return { success: false, error: "This verification code has expired. Please request a new one." };
+  if (entry.attempts >= MAX_OTP_ATTEMPTS) {
+    otpHelpers.delete(identifier);
+    return { success: false, error: "Too many attempts. Please request a new verification code." };
+  }
+  if (entry.code !== code.trim()) {
+    otpHelpers.incrementAttempts(identifier);
+    return { success: false, error: "Invalid verification code." };
+  }
+  return { success: true };
+}
+
+function createSessionToken(userId: string) {
+  const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + SESSION_TTL_MS })).toString("base64url");
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
 }
 
 // ── Send email OTP ──
@@ -90,18 +122,31 @@ async function sendSmsOtp(mobile: string, otp: string): Promise<boolean> {
 }
 
 export class AuthService {
+  static getSessionUser(token?: string): User | undefined {
+    if (!token) return undefined;
+    const [payload, signature] = token.split(".");
+    if (!payload || !signature) return undefined;
+    const expected = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+    if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return undefined;
+    try {
+      const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: string; exp?: number };
+      if (!data.sub || !data.exp || data.exp < Date.now()) return undefined;
+      return userHelpers.findById(data.sub) as User | undefined;
+    } catch { return undefined; }
+  }
   // ──────────────────────────────────────────────────────────────────────────
   // Request a single OTP (login flow — email OR mobile)
   // ──────────────────────────────────────────────────────────────────────────
   static async requestOtp(
     identifier: string,
     type: "email" | "mobile" = "email"
-  ): Promise<{ success: boolean; message: string; devOtp?: string }> {
+  ): Promise<{ success: boolean; message: string }> {
     const clean = identifier.trim().toLowerCase().replace(/\s+/g, "");
     if (!clean) return { success: false, message: "Identifier is required." };
+    if (type === "email" && !clean.includes("@")) return { success: false, message: "Enter a valid email address." };
+    if (type === "mobile" && !isValidMobile(identifier)) return { success: false, message: "Enter a valid 10-digit mobile number." };
 
     const otp = generateOtp();
-    otpHelpers.set(clean, otp);
 
     let delivered = false;
     if (type === "email") {
@@ -110,18 +155,13 @@ export class AuthService {
       delivered = await sendSmsOtp(identifier.trim(), otp);
     }
 
-    if (!delivered) {
-      // Dev fallback — print to console
-      console.log(`\n[AUTH] ⚡ OTP for ${identifier}: ${otp}\n`);
-    }
+    if (!delivered) return { success: false, message: `Unable to send an OTP to this ${type}. Check the delivery service configuration and try again.` };
+
+    otpHelpers.set(clean, otp);
 
     return {
       success: true,
-      message: delivered
-        ? `Verification code sent to ${identifier}`
-        : `[Dev] OTP generated — check server console`,
-      // Only expose devOtp when not delivered (no real credentials set up)
-      ...(!delivered && { devOtp: otp }),
+      message: `Verification code sent to ${identifier}`,
     };
   }
 
@@ -134,8 +174,6 @@ export class AuthService {
   ): Promise<{
     success: boolean;
     message: string;
-    devEmailOtp?: string;
-    devMobileOtp?: string;
   }> {
     const cleanEmail = email.trim().toLowerCase();
     const cleanMobile = mobile.trim().replace(/\s+/g, "");
@@ -143,25 +181,33 @@ export class AuthService {
     if (!cleanEmail || !cleanMobile) {
       return { success: false, message: "Both email and mobile are required." };
     }
+    if (!cleanEmail.includes("@") || !isValidMobile(mobile)) {
+      return { success: false, message: "Enter a valid email address and 10-digit mobile number." };
+    }
 
     const emailOtp = generateOtp();
     const mobileOtp = generateOtp();
 
-    otpHelpers.set(cleanEmail, emailOtp);
-    otpHelpers.set(cleanMobile, mobileOtp);
-
     const emailDelivered = await sendEmailOtp(email.trim(), emailOtp);
     const smsDelivered = await sendSmsOtp(mobile.trim(), mobileOtp);
 
-    if (!emailDelivered) console.log(`\n[AUTH] ⚡ Email OTP for ${email}: ${emailOtp}\n`);
-    if (!smsDelivered) console.log(`\n[AUTH] ⚡ Mobile OTP for ${mobile}: ${mobileOtp}\n`);
+    if (!emailDelivered || !smsDelivered) {
+      return { success: false, message: "We could not deliver both verification codes. Check the email and SMS configuration, then try again." };
+    }
+
+    otpHelpers.set(cleanEmail, emailOtp);
+    otpHelpers.set(cleanMobile, mobileOtp);
 
     return {
       success: true,
       message: "Verification codes dispatched.",
-      ...(!emailDelivered && { devEmailOtp: emailOtp }),
-      ...(!smsDelivered && { devMobileOtp: mobileOtp }),
     };
+  }
+
+  /** Validate a code for the UI without consuming it; registration consumes both. */
+  static validateOtp(identifier: string, code: string): { success: boolean; error?: string } {
+    const clean = identifier.trim().toLowerCase().replace(/\s+/g, "");
+    return validateStoredOtp(clean, code);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -170,14 +216,10 @@ export class AuthService {
   static verifyOtp(
     identifier: string,
     code: string
-  ): { success: boolean; user?: User; error?: string } {
+  ): { success: boolean; user?: User; sessionToken?: string; error?: string } {
     const cleanId = identifier.trim().toLowerCase().replace(/\s+/g, "");
-    const entry = otpHelpers.get(cleanId);
-
-    if (!entry || entry.code !== code.trim()) {
-      if (entry) otpHelpers.incrementAttempts(cleanId);
-      return { success: false, error: "Invalid or expired verification code." };
-    }
+    const validation = validateStoredOtp(cleanId, code);
+    if (!validation.success) return validation;
 
     otpHelpers.delete(cleanId);
 
@@ -194,10 +236,12 @@ export class AuthService {
         id: newId,
         email: isEmail ? cleanId : `${cleanId.replace(/\D/g, "")}@campus.edu`,
         mobile: isEmail ? "" : cleanId,
-        name: isEmail
+        name: cleanId === PLATFORM_ADMIN_EMAIL
+          ? PLATFORM_ADMIN_NAME
+          : isEmail
           ? cleanId.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
           : "New Student",
-        role: "student",
+        role: cleanId === PLATFORM_ADMIN_EMAIL ? "admin" : "student",
       });
       profileHelpers.create({
         id: `p_${Date.now()}`,
@@ -206,7 +250,10 @@ export class AuthService {
       });
     }
 
-    return { success: true, user: user as User };
+    if (cleanId === PLATFORM_ADMIN_EMAIL && user.role !== "admin") {
+      user = userHelpers.updateRole(user.id, "admin") as User;
+    }
+    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -217,15 +264,12 @@ export class AuthService {
     emailOtp: string;
     mobile: string;
     mobileOtp: string;
-  }): { success: boolean; user?: User; error?: string } {
+  }): { success: boolean; user?: User; sessionToken?: string; error?: string } {
     const cleanEmail = params.email.trim().toLowerCase();
     const cleanMobile = params.mobile.trim().replace(/\s+/g, "");
 
-    const emailEntry = otpHelpers.get(cleanEmail);
-    const mobileEntry = otpHelpers.get(cleanMobile);
-
-    const emailValid = emailEntry !== null && emailEntry.code === params.emailOtp.trim();
-    const mobileValid = mobileEntry !== null && mobileEntry.code === params.mobileOtp.trim();
+    const emailValid = validateStoredOtp(cleanEmail, params.emailOtp).success;
+    const mobileValid = validateStoredOtp(cleanMobile, params.mobileOtp).success;
 
     if (!emailValid && !mobileValid)
       return { success: false, error: "Both Email OTP and Mobile OTP are invalid." };
@@ -259,7 +303,7 @@ export class AuthService {
       user = userHelpers.findById(user.id)!;
     }
 
-    return { success: true, user: user as User };
+    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -274,7 +318,7 @@ export class AuthService {
     mobileOtp: string;
     branch: string;
     year: string;
-  }): { success: boolean; user?: User; error?: string } {
+  }): { success: boolean; user?: User; sessionToken?: string; error?: string } {
     const { name, rollNumber, email, emailOtp, mobile, mobileOtp, branch, year } = params;
 
     if (!rollNumber?.trim()) return { success: false, error: "Roll Number / Student ID is required." };
@@ -285,13 +329,12 @@ export class AuthService {
     const cleanEmail = email.trim().toLowerCase();
     const cleanMobile = mobile.trim().replace(/\s+/g, "");
 
-    const emailEntry = otpHelpers.get(cleanEmail);
-    const mobileEntry = otpHelpers.get(cleanMobile);
-
-    if (!emailEntry || emailEntry.code !== emailOtp.trim()) {
+    const emailCheck = validateStoredOtp(cleanEmail, emailOtp);
+    const mobileCheck = validateStoredOtp(cleanMobile, mobileOtp);
+    if (!emailCheck.success) {
       return { success: false, error: "Email OTP is invalid or has expired. Please request a new code." };
     }
-    if (!mobileEntry || mobileEntry.code !== mobileOtp.trim()) {
+    if (!mobileCheck.success) {
       return { success: false, error: "Mobile OTP is invalid or has expired. Please request a new code." };
     }
 
@@ -326,7 +369,7 @@ export class AuthService {
     });
 
     console.log(`[AUTH] ✅ New student registered: ${user.name} (${user.email})`);
-    return { success: true, user: user as User };
+    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -337,17 +380,16 @@ export class AuthService {
     emailOtp: string;
     mobile: string;
     mobileOtp: string;
-  }): { success: boolean; user?: User; error?: string } {
+  }): { success: boolean; user?: User; sessionToken?: string; error?: string } {
     const cleanEmail = params.email.trim().toLowerCase();
     const cleanMobile = params.mobile.trim().replace(/\s+/g, "");
 
-    const emailEntry = otpHelpers.get(cleanEmail);
-    const mobileEntry = otpHelpers.get(cleanMobile);
-
-    if (!emailEntry || emailEntry.code !== params.emailOtp.trim()) {
+    const emailCheck = validateStoredOtp(cleanEmail, params.emailOtp);
+    const mobileCheck = validateStoredOtp(cleanMobile, params.mobileOtp);
+    if (!emailCheck.success) {
       return { success: false, error: "Email OTP is invalid or has expired." };
     }
-    if (!mobileEntry || mobileEntry.code !== params.mobileOtp.trim()) {
+    if (!mobileCheck.success) {
       return { success: false, error: "Mobile OTP is invalid or has expired." };
     }
 
@@ -363,7 +405,7 @@ export class AuthService {
     otpHelpers.delete(cleanMobile);
 
     console.log(`[AUTH] 🔄 Account recovered: ${user.name}`);
-    return { success: true, user: user as User };
+    return { success: true, user: user as User, sessionToken: createSessionToken(user.id) };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
