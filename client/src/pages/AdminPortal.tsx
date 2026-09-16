@@ -16,6 +16,7 @@ import {
   Globe2,
   LayoutDashboard,
   LockKeyhole,
+  LogOut,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -167,7 +168,7 @@ function AuditLogRow({ entry }: { entry: any }) {
 
 /* ── Main AdminPortal ───────────────────────────────────────────────────── */
 export default function AdminPortal() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
 
   const [metrics, setMetrics] = useState<any>(null);
@@ -230,6 +231,11 @@ export default function AdminPortal() {
 
   const openDisputeCount = disputes.filter((d) => d.status === "open").length;
 
+  function handleLogout() {
+    logout();
+    setLocation("/login");
+  }
+
   /* guard: only admin may view */
   if (user && user.role !== "admin") {
     return (
@@ -269,6 +275,9 @@ export default function AdminPortal() {
         <div className="flex items-center gap-3">
           <button onClick={loadData} className="grid h-10 w-10 place-items-center rounded-xl border border-[#e0dfd8] bg-white text-[#596158] shadow-sm transition hover:bg-[#f5f5f0] dark:border-[#354536] dark:bg-[#1d2a1e] dark:text-[#d4e1d2] dark:hover:bg-[#273828]" title="Refresh data">
             <RefreshCw size={17} />
+          </button>
+          <button onClick={handleLogout} aria-label="Sign out" title="Sign out" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#f0d8d8] bg-[#fef4f4] px-3 text-xs font-bold text-[#aa3030] transition hover:bg-[#fde8e8] dark:border-[#573033] dark:bg-[#2a1818] dark:text-[#ffaaaa]">
+            <LogOut size={15} /><span className="hidden sm:inline">Sign out</span>
           </button>
           <div className="hidden items-center gap-2 border-l border-[#e4e3dd] pl-3 sm:flex dark:border-[#334234]">
             <div className="grid h-9 w-9 place-items-center rounded-full bg-[#172017] text-white text-[11px] font-bold">A</div>

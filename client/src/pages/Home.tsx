@@ -289,7 +289,9 @@ function TopBar({
         {/* Sign out button */}
         <button
           onClick={handleLogout}
-          className="hidden items-center gap-1.5 rounded-xl border border-[#f0d8d8] bg-[#fef4f4] px-3 py-2 text-xs font-bold text-[#aa3030] transition hover:bg-[#fde8e8] sm:flex dark:border-[#3a2020] dark:bg-[#2a1818] dark:text-[#f09090]"
+          aria-label="Sign out"
+          title="Sign out"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#f0d8d8] bg-[#fef4f4] px-3 py-2 text-xs font-bold text-[#aa3030] transition hover:bg-[#fde8e8] dark:border-[#3a2020] dark:bg-[#2a1818] dark:text-[#f09090]"
         >
           <LogOut size={14} />
           <span className="hidden md:inline">Sign out</span>

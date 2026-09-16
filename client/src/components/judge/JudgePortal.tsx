@@ -16,13 +16,16 @@ import {
   Save,
   Send,
   Flag,
+  LogOut,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import type { JudgeAssignment, Submission, JudgingCriteria } from "@shared/types";
 import { useAuth } from "../../contexts/AuthContext";
 import { toast } from "sonner";
 
 export function JudgePortal() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const [, setLocation] = useLocation();
   const [assignments, setAssignments] = useState<any[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState<any | null>(null);
   const [criteria, setCriteria] = useState<JudgingCriteria[]>([]);
@@ -180,14 +183,19 @@ export function JudgePortal() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-sm">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
-              Assignments Queue
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-sm">
+              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
+                Assignments Queue
+              </div>
+              <div className="mt-2 font-display text-2xl font-extrabold text-[#b8f34a]">
+                {assignments.length} Projects
+              </div>
+              <div className="mt-1 text-xs text-white/60">Assigned exclusively to you</div>
             </div>
-            <div className="mt-2 font-display text-2xl font-extrabold text-[#b8f34a]">
-              {assignments.length} Projects
-            </div>
-            <div className="mt-1 text-xs text-white/60">Assigned exclusively to you</div>
+            <button onClick={() => { logout(); setLocation("/login"); }} aria-label="Sign out" className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-white/20">
+              <LogOut size={14} /> Sign out
+            </button>
           </div>
         </div>
       </section>
