@@ -74,6 +74,31 @@ type Workspace = "student" | "organizer";
 type StudentView = "home" | "competitions" | "teams" | "payments" | "certificates";
 type OrganizerView = "overview" | "setup" | "teams" | "submissions" | "attendance" | "team";
 
+const studentViewPaths: Record<StudentView, string> = {
+  home: "/student/home",
+  competitions: "/student/competitions",
+  teams: "/student/teams",
+  payments: "/student/payments",
+  certificates: "/student/certificates",
+};
+
+const organizerViewPaths: Record<OrganizerView, string> = {
+  overview: "/organizer/overview",
+  setup: "/organizer/setup",
+  teams: "/organizer/teams",
+  submissions: "/organizer/submissions",
+  attendance: "/organizer/attendance",
+  team: "/organizer/team",
+};
+
+function getWorkspaceRoute(path: string): { workspace: Workspace; view: StudentView | OrganizerView } | null {
+  const studentRoute = (Object.entries(studentViewPaths) as Array<[StudentView, string]>).find(([, route]) => route === path);
+  if (studentRoute) return { workspace: "student", view: studentRoute[0] };
+
+  const organizerRoute = (Object.entries(organizerViewPaths) as Array<[OrganizerView, string]>).find(([, route]) => route === path);
+  return organizerRoute ? { workspace: "organizer", view: organizerRoute[0] } : null;
+}
+
 /** A display-ready competition card (sourced from API or fallback static). */
 type CompCard = {
   id: string;
@@ -336,7 +361,7 @@ function Sidebar({
             const Icon = item.icon;
             const isActive = active === item.id;
             return (
-              <button key={item.id} onClick={() => { setActive(item.id); setMobileOpen(false); }} className={cn("group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors", isActive ? "bg-[#172017] text-white shadow-[0_4px_0_#d8e9b7] dark:bg-[#b8f34a] dark:text-[#101610] dark:shadow-[0_4px_0_#6c982b]" : "text-[#6b7269] hover:bg-[#edede7] hover:text-[#1d281d] dark:text-[#9cb09c] dark:hover:bg-[#1c281d] dark:hover:text-[#e8efe3]", collapsed ? "lg:justify-center lg:px-2" : "")}>
+              <button key={item.id} onClick={() => { setActive(item.id); setMobileOpen(false); }} className={cn("workspace-nav-item group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors", isActive && "workspace-nav-item--active", collapsed ? "lg:justify-center lg:px-2" : "")}>
                 <Icon size={17} strokeWidth={isActive ? 2.4 : 2} />
                 <span className={cn(collapsed ? "lg:hidden" : "")}>{item.label}</span>
                 {item.id === "payments" && <span className={cn("ml-auto h-1.5 w-1.5 rounded-full bg-[#e55d5d]", collapsed ? "lg:hidden" : "")} />}
@@ -1407,6 +1432,7 @@ function TeamDetail({ close }: { close: () => void }) {
 /* ── Main Home export ────────────────────────────────────────────────────── */
 export default function Home() {
   const { user } = useAuth();
+  const [location, setLocation] = useLocation();
 
   // ── layout state
   const [workspace, setWorkspace] = useState<Workspace>("student");
@@ -1437,12 +1463,20 @@ export default function Home() {
   const [showShowcase, setShowShowcase] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // ── set workspace by role on first load
+  // ── keep the workspace view in sync with its URL (including back/forward)
   useEffect(() => {
     if (!user) return;
-    if (user.role === "organizer" || user.role === "faculty") setWorkspace("organizer");
-    else setWorkspace("student");
-  }, [user?.id]);
+    const route = getWorkspaceRoute(location);
+    if (route) {
+      setWorkspace(route.workspace);
+      if (route.workspace === "student") setStudentView(route.view as StudentView);
+      else setOrganizerView(route.view as OrganizerView);
+      return;
+    }
+
+    const defaultWorkspace: Workspace = user.role === "organizer" || user.role === "faculty" ? "organizer" : "student";
+    setLocation(defaultWorkspace === "student" ? studentViewPaths.home : organizerViewPaths.overview, { replace: true });
+  }, [location, setLocation, user?.id, user?.role]);
 
   // ── load competitions
   useEffect(() => {
@@ -1475,12 +1509,21 @@ export default function Home() {
   // ── derived
   const active = workspace === "student" ? studentView : organizerView;
   const setActive = useCallback((view: StudentView | OrganizerView) => {
-    if (workspace === "student") setStudentView(view as StudentView);
-    else setOrganizerView(view as OrganizerView);
-  }, [workspace]);
+    setDetail(null);
+    setTeamDetail(false);
+    if (workspace === "student") {
+      const studentView = view as StudentView;
+      setStudentView(studentView);
+      setLocation(studentViewPaths[studentView]);
+    } else {
+      const organizerView = view as OrganizerView;
+      setOrganizerView(organizerView);
+      setLocation(organizerViewPaths[organizerView]);
+    }
+  }, [setLocation, workspace]);
 
-  const goOrganizer = () => { setWorkspace("organizer"); setOrganizerView("overview"); setDetail(null); setTeamDetail(false); };
-  const goStudent = () => { setWorkspace("student"); setStudentView("home"); setDetail(null); setTeamDetail(false); };
+  const goOrganizer = () => { setWorkspace("organizer"); setOrganizerView("overview"); setDetail(null); setTeamDetail(false); setLocation(organizerViewPaths.overview); };
+  const goStudent = () => { setWorkspace("student"); setStudentView("home"); setDetail(null); setTeamDetail(false); setLocation(studentViewPaths.home); };
   const openTeam = () => { if (workspace === "student") setTeamDetail(true); else setOrganizerView("team"); };
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
@@ -1497,7 +1540,7 @@ export default function Home() {
         : teamDetail
           ? <TeamDetail close={() => setTeamDetail(false)} />
           : studentView === "home"
-            ? <StudentHome setActive={setStudentView} openCompetition={setDetail} competitions={competitions} teams={teams} onOpenProfile={() => setShowProfile(true)} onOpenFindTeam={() => setShowFindTeam(true)} />
+            ? <StudentHome setActive={setActive} openCompetition={setDetail} competitions={competitions} teams={teams} onOpenProfile={() => setShowProfile(true)} onOpenFindTeam={() => setShowFindTeam(true)} />
             : studentView === "competitions"
               ? <CompetitionsView openCompetition={setDetail} competitions={competitions} />
               : studentView === "teams"
@@ -1506,9 +1549,9 @@ export default function Home() {
                   ? <PaymentsView teams={teams} onOpenPayment={setPaymentTeam} />
                   : <CertificatesView onOpenShowcase={() => setShowShowcase(true)} />)
     : (organizerView === "overview"
-        ? <OrganizerOverview setActive={setOrganizerView} />
+        ? <OrganizerOverview setActive={setActive} />
         : organizerView === "setup"
-          ? <SetupView setActive={setOrganizerView} />
+          ? <SetupView setActive={setActive} />
           : organizerView === "teams"
             ? <OrganizerTeamsView openTeam={openTeam} />
             : organizerView === "submissions"

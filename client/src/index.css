@@ -98,6 +98,14 @@ html.dark [class*="hover:bg-[#f"]:hover { background-color: #1e281f !important; 
 html.dark .bg-\[\#172017\] { background-color: #081008 !important; }
 html.dark .bg-\[\#b8f34a\] { background-color: #b8f34a !important; color: #101610 !important; }
 
+/* Workspace navigation keeps a deliberate, high-contrast selected state in both themes. */
+.workspace-nav-item { color: #5e6b5d; }
+.workspace-nav-item:hover { background-color: #edede7; color: #1d281d; }
+.workspace-nav-item--active { background-color: #172017; color: #ffffff; box-shadow: 0 4px 0 #d8e9b7; }
+html.dark .workspace-nav-item { color: #bfd0be; }
+html.dark .workspace-nav-item:hover { background-color: #1c281d; color: #f3f8ee; }
+html.dark .workspace-nav-item--active { background-color: #b8f34a !important; color: #101610 !important; box-shadow: 0 4px 0 #6c982b; }
+
 /* Dark mode text contrast overrides for specific deep-forest & dark text colors */
 html.dark [class*="text-[#1e2a20]"],
 html.dark [class*="text-[#202a20]"],
