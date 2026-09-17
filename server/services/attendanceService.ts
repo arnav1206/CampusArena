@@ -3,12 +3,12 @@
 // =============================================================================
 
 import crypto from "node:crypto";
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   AttendanceCheckpoint,
   AttendanceRecord,
   DigitalPass,
-} from "../../shared/types";
+} from "../../shared/types.js";
 
 export class AttendanceService {
   static getCheckpointsByCompetition(competitionId: string): AttendanceCheckpoint[] {

@@ -2,7 +2,7 @@
 // Campus Arena — Team Formation, Verification & Lifecycle Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   Team,
   TeamMember,
@@ -11,12 +11,12 @@ import type {
   TeamInvitation,
   TeamRemovalVote,
   TrackChangeRequest,
-} from "../../shared/types";
-import { computeTeamStatus } from "../../shared/state-machines";
+} from "../../shared/types.js";
+import { computeTeamStatus } from "../../shared/state-machines.js";
 import {
   canRequestTrackChange,
   getMemberRemovalMode,
-} from "../../shared/business-rules";
+} from "../../shared/business-rules.js";
 
 export class TeamService {
   static getTeamsByCompetition(competitionId: string): Team[] {

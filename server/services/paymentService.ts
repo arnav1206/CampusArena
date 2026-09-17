@@ -2,15 +2,15 @@
 // Campus Arena — Payment Gateway Abstraction & Accounting Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   PaymentTransaction,
   PaymentStatus,
   Coupon,
   FeeWaiver,
-} from "../../shared/types";
-import { calculateTeamFee } from "../../shared/business-rules";
-import { computeTeamStatus } from "../../shared/state-machines";
+} from "../../shared/types.js";
+import { calculateTeamFee } from "../../shared/business-rules.js";
+import { computeTeamStatus } from "../../shared/state-machines.js";
 
 export class PaymentService {
   static getPaymentsByCompetition(competitionId: string): PaymentTransaction[] {

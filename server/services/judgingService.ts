@@ -2,13 +2,13 @@
 // Campus Arena — Judging, Scoring & Evaluation Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   JudgingCriteria,
   JudgeAssignment,
   JudgingScore,
   Submission,
-} from "../../shared/types";
+} from "../../shared/types.js";
 
 export class JudgingService {
   static getCriteriaByRound(roundId: string): JudgingCriteria[] {

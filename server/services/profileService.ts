@@ -2,8 +2,8 @@
 // Campus Arena — Student Profile Service
 // =============================================================================
 
-import { profileHelpers, userHelpers } from "../db";
-import type { StudentProfile } from "../../shared/types";
+import { profileHelpers, userHelpers } from "../db/index.js";
+import type { StudentProfile } from "../../shared/types.js";
 
 export class ProfileService {
   static getProfileByUserId(userId: string): StudentProfile | undefined {

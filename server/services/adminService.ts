@@ -2,14 +2,14 @@
 // Campus Arena — Platform Admin, Analytics, Disputes & Audit Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   Dispute,
   AuditLog,
   User,
   Competition,
   PaymentTransaction,
-} from "../../shared/types";
+} from "../../shared/types.js";
 
 export class AdminService {
   /**

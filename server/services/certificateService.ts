@@ -2,8 +2,8 @@
 // Campus Arena — Certificates & Showcase Service
 // =============================================================================
 
-import { db } from "../db";
-import type { Certificate, CompetitionReview } from "../../shared/types";
+import { db } from "../db/index.js";
+import type { Certificate, CompetitionReview } from "../../shared/types.js";
 
 export class CertificateService {
   static getCertificatesForUser(userId: string): Certificate[] {

@@ -8,8 +8,8 @@
 import { Pool } from "pg";
 import path from "node:path";
 import fs from "node:fs";
-import { createInitialSeedData, type DatabaseSchema } from "./seed";
-import type { StudentProfile, User } from "../../shared/types";
+import { createInitialSeedData, type DatabaseSchema } from "./seed.js";
+import type { StudentProfile, User } from "../../shared/types.js";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 

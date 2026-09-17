@@ -28,7 +28,7 @@ import type {
   AuditLog,
   CompetitionReview,
   WaitlistEntry,
-} from "../../shared/types";
+} from "../../shared/types.js";
 
 export interface DatabaseSchema {
   users: User[];

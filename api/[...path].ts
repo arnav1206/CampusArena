@@ -3,7 +3,7 @@
 // It is intentionally self-contained: Vercel bundles each API entrypoint
 // independently, so sibling-module imports would not be available at runtime.
 import express from "express";
-import { apiRouter } from "../server/routes";
+import { apiRouter } from "../server/routes.js";
 
 const app = express();
 

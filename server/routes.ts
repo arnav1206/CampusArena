@@ -3,18 +3,18 @@
 // =============================================================================
 
 import { Router, type Request, type Response } from "express";
-import { AuthService } from "./services/authService";
-import { ProfileService } from "./services/profileService";
-import { CompetitionService } from "./services/competitionService";
-import { TeamService } from "./services/teamService";
-import { PaymentService } from "./services/paymentService";
-import { SubmissionService } from "./services/submissionService";
-import { JudgingService } from "./services/judgingService";
-import { AttendanceService } from "./services/attendanceService";
-import { CertificateService } from "./services/certificateService";
-import { NotificationService } from "./services/notificationService";
-import { AdminService } from "./services/adminService";
-import { db, preferenceHelpers } from "./db";
+import { AuthService } from "./services/authService.js";
+import { ProfileService } from "./services/profileService.js";
+import { CompetitionService } from "./services/competitionService.js";
+import { TeamService } from "./services/teamService.js";
+import { PaymentService } from "./services/paymentService.js";
+import { SubmissionService } from "./services/submissionService.js";
+import { JudgingService } from "./services/judgingService.js";
+import { AttendanceService } from "./services/attendanceService.js";
+import { CertificateService } from "./services/certificateService.js";
+import { NotificationService } from "./services/notificationService.js";
+import { AdminService } from "./services/adminService.js";
+import { db, preferenceHelpers } from "./db/index.js";
 
 export const apiRouter = Router();
 

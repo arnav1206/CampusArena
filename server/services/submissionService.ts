@@ -2,12 +2,12 @@
 // Campus Arena — Submissions & File Security Validation Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   Submission,
   SubmissionFile,
   Round,
-} from "../../shared/types";
+} from "../../shared/types.js";
 
 export class SubmissionService {
   static getSubmissionsByRound(roundId: string): Submission[] {

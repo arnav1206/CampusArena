@@ -10,8 +10,8 @@
 //
 // =============================================================================
 
-import { userHelpers, profileHelpers, otpHelpers } from "../db";
-import type { User, PlatformRole } from "../../shared/types";
+import { userHelpers, profileHelpers, otpHelpers } from "../db/index.js";
+import type { User, PlatformRole } from "../../shared/types.js";
 import crypto from "node:crypto";
 
 // ── Optional email transport (loaded lazily so app starts without credentials) ──

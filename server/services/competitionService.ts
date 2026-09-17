@@ -2,20 +2,20 @@
 // Campus Arena — Competition Management Service
 // =============================================================================
 
-import { db } from "../db";
+import { db } from "../db/index.js";
 import type {
   Competition,
   CompetitionStatus,
   Track,
   RegistrationField,
   WaitlistEntry,
-} from "../../shared/types";
+} from "../../shared/types.js";
 import {
   evaluateCompetitionReadiness,
   checkCapacity,
   type ReadinessReport,
-} from "../../shared/business-rules";
-import { canTransitionCompetition } from "../../shared/state-machines";
+} from "../../shared/business-rules.js";
+import { canTransitionCompetition } from "../../shared/state-machines.js";
 
 export class CompetitionService {
   static getAllCompetitions(activeOnly = false): Competition[] {

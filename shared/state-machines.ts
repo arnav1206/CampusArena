@@ -9,7 +9,7 @@ import type {
   SubmissionStatus,
   JudgingStatus,
   AttendanceStatus,
-} from "./types";
+} from "./types.js";
 
 /**
  * Competition Lifecycle State Machine

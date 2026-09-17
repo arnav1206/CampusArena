@@ -9,7 +9,7 @@ import type {
   Competition,
   Team,
   Submission,
-} from "./types";
+} from "./types.js";
 
 /**
  * Pricing Calculation:
