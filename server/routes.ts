@@ -14,9 +14,39 @@ import { AttendanceService } from "./services/attendanceService";
 import { CertificateService } from "./services/certificateService";
 import { NotificationService } from "./services/notificationService";
 import { AdminService } from "./services/adminService";
-import { db } from "./db";
+import { db, preferenceHelpers } from "./db";
 
 export const apiRouter = Router();
+
+// Routes must not read the in-memory cache until PostgreSQL has finished its
+// initial schema setup and data restore.
+apiRouter.use((_req: Request, res: Response, next) => {
+  void db.ready.then(() => next()).catch((error) => {
+    console.error("[DB] PostgreSQL is unavailable:", error);
+    res.status(503).json({ success: false, error: "The database is unavailable. Please try again shortly." });
+  });
+});
+
+// Do not acknowledge a mutation until PostgreSQL has committed the queued
+// write. This is what makes a newly issued certificate or saved setting
+// available immediately after the next login, even after a process restart.
+apiRouter.use((_req: Request, res: Response, next) => {
+  const sendJson = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    void db
+      .flush()
+      .then(() => sendJson(body))
+      .catch((error) => {
+        console.error("[DB] Could not complete API request:", error);
+        if (!res.headersSent) {
+          res.status(503);
+          sendJson({ success: false, error: "Your data could not be saved. Please try again." });
+        }
+      });
+    return res;
+  }) as Response["json"];
+  next();
+});
 
 function requireAdmin(req: Request, res: Response): boolean {
   const user = AuthService.getSessionUser(req.header("x-session-token"));
@@ -25,6 +55,19 @@ function requireAdmin(req: Request, res: Response): boolean {
     return false;
   }
   return true;
+}
+
+function requirePreferenceOwner(req: Request, res: Response, userId: string) {
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!sessionUser) {
+    res.status(401).json({ success: false, error: "A valid signed-in session is required." });
+    return undefined;
+  }
+  if (sessionUser.id !== userId && sessionUser.role !== "admin") {
+    res.status(403).json({ success: false, error: "You can only access your own saved settings." });
+    return undefined;
+  }
+  return sessionUser;
 }
 
 // -----------------------------------------------------------------------------
@@ -121,6 +164,27 @@ apiRouter.get("/auth/me", (req: Request, res: Response) => {
 
 apiRouter.get("/users", (_req: Request, res: Response) => {
   res.json({ users: db.get().users });
+});
+
+// Account preferences are stored server-side so a user's choices are restored
+// when they sign in on another browser or device.
+apiRouter.get("/users/:userId/preferences", (req: Request, res: Response) => {
+  if (!requirePreferenceOwner(req, res, req.params.userId)) return;
+  res.json({ preferences: preferenceHelpers.get(req.params.userId) });
+});
+
+apiRouter.put("/users/:userId/preferences", (req: Request, res: Response) => {
+  if (!requirePreferenceOwner(req, res, req.params.userId)) return;
+  const { preferences } = req.body as { preferences?: unknown };
+  if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) {
+    return res.status(400).json({ success: false, error: "Preferences must be an object." });
+  }
+
+  const values = preferences as Record<string, unknown>;
+  if (values.theme !== undefined && values.theme !== "light" && values.theme !== "dark") {
+    return res.status(400).json({ success: false, error: "Theme must be light or dark." });
+  }
+  res.json({ success: true, preferences: preferenceHelpers.update(req.params.userId, values) });
 });
 
 

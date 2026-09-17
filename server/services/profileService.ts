@@ -2,58 +2,53 @@
 // Campus Arena — Student Profile Service
 // =============================================================================
 
-import { db } from "../db";
+import { profileHelpers, userHelpers } from "../db";
 import type { StudentProfile } from "../../shared/types";
 
 export class ProfileService {
   static getProfileByUserId(userId: string): StudentProfile | undefined {
-    return db.get().profiles.find((p) => p.userId === userId);
+    return profileHelpers.findByUserId(userId) as StudentProfile | null ?? undefined;
   }
 
   static updateProfile(
     userId: string,
     updates: Partial<StudentProfile>
   ): { success: boolean; profile?: StudentProfile; error?: string } {
-    let updated: StudentProfile | undefined;
+    const user = userHelpers.findById(userId);
+    if (!user) return { success: false, error: "User not found." };
 
-    db.update((draft) => {
-      let p = draft.profiles.find((profile) => profile.userId === userId);
-      if (!p) {
-        const user = draft.users.find((u) => u.id === userId);
-        p = {
-          id: `p_${Date.now()}`,
-          userId,
-          name: user?.name || "Student",
-          rollNumber: user?.rollNumber || "2024CS001",
-          branch: "Computer Science & Engineering",
-          year: "1st Year",
-          facePresenceVerified: false,
-          technicalSkills: [],
-          nonTechnicalSkills: [],
-          domains: [],
-          githubUrl: "",
-          linkedinUrl: "",
-          lookingForTeam: false,
-          updatedAt: new Date().toISOString(),
-        };
-        draft.profiles.push(p);
-      }
+    if (!profileHelpers.findByUserId(userId)) {
+      profileHelpers.create({
+        id: `p_${Date.now()}`,
+        userId,
+        name: user.name,
+        rollNumber: user.rollNumber,
+      });
+    }
 
-      // Prohibit Section if accidentally supplied
-      const safeUpdates = { ...updates };
-      delete (safeUpdates as any).section;
+    // Whitelist persisted profile fields so request-only fields cannot become
+    // arbitrary account data.
+    const profile = profileHelpers.update(userId, {
+      name: updates.name,
+      branch: updates.branch,
+      year: updates.year,
+      technicalSkills: updates.technicalSkills,
+      nonTechnicalSkills: updates.nonTechnicalSkills,
+      domains: updates.domains,
+      githubUrl: updates.githubUrl,
+      linkedinUrl: updates.linkedinUrl,
+      portfolioUrl: updates.portfolioUrl,
+      profilePhotoUrl: updates.profilePhotoUrl,
+      previousCompetitions: updates.previousCompetitions,
+      projects: updates.projects,
+      achievements: updates.achievements,
+      certificates: updates.certificates,
+      lookingForTeam: updates.lookingForTeam,
+      facePresenceVerified: updates.facePresenceVerified,
+    }) as StudentProfile | null;
 
-      Object.assign(p, safeUpdates, { updatedAt: new Date().toISOString() });
-      updated = p;
-
-      // Also sync name to user if updated
-      if (updates.name) {
-        const u = draft.users.find((user) => user.id === userId);
-        if (u) u.name = updates.name;
-      }
-    });
-
-    return { success: true, profile: updated };
+    if (updates.name?.trim()) userHelpers.updateName(userId, updates.name);
+    return { success: true, profile: profile ?? undefined };
   }
 
   /**
@@ -69,13 +64,9 @@ export class ProfileService {
     // We confirm presence without biometric extraction
     const hasPhoto = Boolean(photoBase64OrUrl && photoBase64OrUrl.length > 50);
 
-    db.update((draft) => {
-      const p = draft.profiles.find((profile) => profile.userId === userId);
-      if (p) {
-        p.profilePhotoUrl = photoBase64OrUrl;
-        p.facePresenceVerified = hasPhoto;
-        p.updatedAt = new Date().toISOString();
-      }
+    this.updateProfile(userId, {
+      profilePhotoUrl: photoBase64OrUrl,
+      facePresenceVerified: hasPhoto,
     });
 
     return {
@@ -88,21 +79,11 @@ export class ProfileService {
   }
 
   static toggleLookingForTeam(userId: string, isLooking: boolean): boolean {
-    let result = isLooking;
-    db.update((draft) => {
-      const p = draft.profiles.find((profile) => profile.userId === userId);
-      if (p) {
-        p.lookingForTeam = isLooking;
-        p.updatedAt = new Date().toISOString();
-        result = p.lookingForTeam;
-      }
-    });
-    return result;
+    const profile = profileHelpers.update(userId, { lookingForTeam: isLooking });
+    return profile?.lookingForTeam ?? false;
   }
 
   static getStudentsLookingForTeam(excludeUserId?: string): StudentProfile[] {
-    return db
-      .get()
-      .profiles.filter((p) => p.lookingForTeam && p.userId !== excludeUserId);
+    return profileHelpers.allLookingForTeam(excludeUserId) as StudentProfile[];
   }
 }

@@ -20,8 +20,27 @@ CampusArena is a comprehensive Campus Competition Tool designed to simplify the 
 ## ⚙️ Running Locally
 1. Clone the repository
 2. Install dependencies: `npm install`
-3. Run the development server: `npm run dev`
-4. The application will be available at `http://localhost:5173`
+3. Copy `.env.example` to `.env` and set `DATABASE_URL` to your PostgreSQL connection string.
+4. Run the development server: `npm run dev`
+5. The application will be available at `http://localhost:5173`
+
+## PostgreSQL persistence
+
+`DATABASE_URL` is required for the API server. On its first connection, CampusArena creates the PostgreSQL schema and imports the existing `server/data/db.json` data once. After that, PostgreSQL stores all platform records—including users, profiles, competition configuration, teams, payments, submissions, notifications, and certificates. Account preferences are stored separately and restored after sign-in; the current theme preference is the first setting wired to this flow.
+
+## Demo accounts
+
+Use the **Password** sign-in method with the password `Campus@2026`:
+
+| Workspace | Email |
+| --- | --- |
+| Student | `aarav@campus.edu` |
+| Organizer | `organizer@campus.edu` |
+| Faculty | `faculty@campus.edu` |
+| Judge | `judge@campus.edu` |
+| Admin | `admin@campus.edu` |
+
+These accounts are intended for the public demo only. Set `DEMO_CREDENTIALS_ENABLED=false` in a non-demo deployment.
 
 ## Administrator access and real OTP delivery
 

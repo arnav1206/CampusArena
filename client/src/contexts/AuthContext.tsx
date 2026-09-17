@@ -14,7 +14,10 @@ import {
   apiRegisterStudent,
   apiLoginWithPassword,
   apiSetupPassword,
+  apiGetUserPreferences,
+  apiUpdateUserPreferences,
 } from "@/lib/authClientDb";
+import { useTheme } from "./ThemeContext";
 
 type LoginResult = { success: boolean; error?: string; passwordSetupRequired?: boolean; passwordSetupToken?: string };
 
@@ -43,10 +46,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { theme, setTheme } = useTheme();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [notifications, setNotifications] = useState<PlatformNotification[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [preferencesLoadedFor, setPreferencesLoadedFor] = useState<string | null>(null);
 
   // When opening the website, check if a session exists; if not, stay logged out so Login page displays
   useEffect(() => {
@@ -57,6 +62,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
   }, []);
+
+  // Theme is a user preference, not just a browser preference. Wait until the
+  // saved account settings have been applied before writing, so an old local
+  // value can never overwrite the preference restored at sign-in.
+  useEffect(() => {
+    if (!user || preferencesLoadedFor !== user.id) return;
+    void apiUpdateUserPreferences(user.id, { theme });
+  }, [theme, user?.id, preferencesLoadedFor]);
 
   async function loadUser(userId: string) {
     try {
@@ -71,6 +84,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profData.profile) {
           setProfile(profData.profile);
         }
+
+        // Restore settings for this account after every login/session restore.
+        // localStorage remains only a short initial-display fallback.
+        const savedPreferences = await apiGetUserPreferences(userData.user.id);
+        if (savedPreferences.preferences?.theme === "light" || savedPreferences.preferences?.theme === "dark") {
+          setTheme?.(savedPreferences.preferences.theme);
+        }
+        setPreferencesLoadedFor(userData.user.id);
 
         // Load notifications
         try {
@@ -282,6 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setProfile(null);
     setNotifications([]);
+    setPreferencesLoadedFor(null);
     toast.info("Signed out successfully.");
   }
 

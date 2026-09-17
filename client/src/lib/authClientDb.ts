@@ -10,6 +10,11 @@ export function getSessionHeaders(): Record<string, string> {
   return token ? { "x-session-token": token } : {};
 }
 
+export type UserPreferences = {
+  theme?: "light" | "dark";
+  [key: string]: unknown;
+};
+
 // ── Auth Service Client API ──
 
 export async function apiRequestOtp(
@@ -170,4 +175,33 @@ export async function apiGetProfile(userId: string): Promise<{ profile?: Student
     }
   } catch {}
   return { error: "The secure authentication service is unavailable." };
+}
+
+export async function apiGetUserPreferences(
+  userId: string
+): Promise<{ preferences?: UserPreferences; error?: string }> {
+  try {
+    const res = await fetch(`/api/users/${userId}/preferences`, { headers: getSessionHeaders() });
+    const data = await res.json();
+    return res.ok ? data : { error: data.error || "Unable to load saved preferences." };
+  } catch {
+    return { error: "Unable to load saved preferences." };
+  }
+}
+
+export async function apiUpdateUserPreferences(
+  userId: string,
+  preferences: UserPreferences
+): Promise<{ preferences?: UserPreferences; error?: string }> {
+  try {
+    const res = await fetch(`/api/users/${userId}/preferences`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...getSessionHeaders() },
+      body: JSON.stringify({ preferences }),
+    });
+    const data = await res.json();
+    return res.ok ? data : { error: data.error || "Unable to save preferences." };
+  } catch {
+    return { error: "Unable to save preferences." };
+  }
 }

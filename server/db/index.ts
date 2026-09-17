@@ -1,251 +1,458 @@
 // =============================================================================
-// Campus Arena — SQLite Persistent Database
-// Replaces the JSON file store with a real SQLite database.
-// Tables are created automatically on first run.
-// No seed/fake data — all data comes from real user registrations.
+// Campus Arena — PostgreSQL persistent storage
 // =============================================================================
+// PostgreSQL is the single runtime source of truth. The service layer keeps its
+// synchronous state API, while writes are committed in an ordered database
+// queue and each API response waits for that queue before it is sent.
 
-import Database from "better-sqlite3";
+import { Pool } from "pg";
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import { createInitialSeedData, type DatabaseSchema } from "./seed";
+import type { StudentProfile, User } from "../../shared/types";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_DIR = process.env.VERCEL
-  ? path.resolve("/tmp", "campus_arena_data")
-  : path.resolve(__dirname, "..", "data");
-const DB_FILE = path.join(DB_DIR, "campus_arena.sqlite");
+const databaseUrl = process.env.DATABASE_URL?.trim();
 
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+if (!databaseUrl) {
+  throw new Error(
+    "DATABASE_URL is required. Configure a PostgreSQL connection string before starting Campus Arena."
+  );
 }
 
-export const sqliteDb = new Database(DB_FILE);
+export const postgresPool = new Pool({
+  connectionString: databaseUrl,
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+});
 
-// Enable WAL mode for better concurrent read performance
-sqliteDb.pragma("journal_mode = WAL");
-sqliteDb.pragma("foreign_keys = ON");
+type DomainCollection = Exclude<keyof DatabaseSchema, "users" | "profiles">;
 
-// =============================================================================
-// Schema — Create tables if they don't exist
-// =============================================================================
-sqliteDb.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    college_id TEXT NOT NULL DEFAULT 'CAMPUS_MAIN',
-    email TEXT UNIQUE NOT NULL,
-    mobile TEXT NOT NULL,
-    name TEXT NOT NULL,
-    roll_number TEXT UNIQUE,
-    role TEXT NOT NULL DEFAULT 'student',
-    password_hash TEXT,
-    avatar_url TEXT DEFAULT '',
-    is_verified_college_user INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
+const DOMAIN_COLLECTIONS = [
+  "competitions",
+  "tracks",
+  "registrationFields",
+  "teams",
+  "teamMembers",
+  "waitlist",
+  "coupons",
+  "waivers",
+  "payments",
+  "rounds",
+  "submissions",
+  "criteria",
+  "judgeAssignments",
+  "scores",
+  "attendanceCheckpoints",
+  "attendanceRecords",
+  "certificates",
+  "announcements",
+  "notifications",
+  "organizerMemberships",
+  "disputes",
+  "auditLogs",
+  "reviews",
+] as const satisfies readonly DomainCollection[];
 
-  CREATE TABLE IF NOT EXISTS profiles (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    roll_number TEXT,
-    branch TEXT NOT NULL DEFAULT 'Computer Science & Engineering',
-    year TEXT NOT NULL DEFAULT '1st Year',
-    face_presence_verified INTEGER NOT NULL DEFAULT 0,
-    technical_skills TEXT NOT NULL DEFAULT '[]',
-    non_technical_skills TEXT NOT NULL DEFAULT '[]',
-    domains TEXT NOT NULL DEFAULT '[]',
-    github_url TEXT DEFAULT '',
-    linkedin_url TEXT DEFAULT '',
-    portfolio_url TEXT DEFAULT '',
-    looking_for_team INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-  );
+type RawRecord = { id?: unknown; createdAt?: unknown; updatedAt?: unknown };
 
-  CREATE TABLE IF NOT EXISTS otp_store (
-    identifier TEXT PRIMARY KEY,
-    code TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS competitions (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS teams (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS team_members (
-    id TEXT PRIMARY KEY,
-    team_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    data TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS payments (
-    id TEXT PRIMARY KEY,
-    team_id TEXT,
-    competition_id TEXT,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS submissions (
-    id TEXT PRIMARY KEY,
-    round_id TEXT,
-    team_id TEXT,
-    competition_id TEXT,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS certificates (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    competition_id TEXT,
-    data TEXT NOT NULL,
-    issued_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS notifications (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    is_read INTEGER NOT NULL DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS announcements (
-    id TEXT PRIMARY KEY,
-    competition_id TEXT,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS audit_logs (
-    id TEXT PRIMARY KEY,
-    actor_user_id TEXT,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-`);
-
-// Safe migration for databases created before password sign-in was introduced.
-const userColumns = sqliteDb.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
-if (!userColumns.some((column) => column.name === "password_hash")) {
-  sqliteDb.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
+function emptyState(): DatabaseSchema {
+  const state = { users: [], profiles: [] } as unknown as DatabaseSchema;
+  for (const collection of DOMAIN_COLLECTIONS) {
+    (state[collection] as unknown) = [];
+  }
+  return state;
 }
 
-// =============================================================================
-// OTP helpers — used by authService
-// =============================================================================
-export const otpHelpers = {
-  /** Store or replace an OTP for a given identifier */
-  set(identifier: string, code: string, ttlMs = 10 * 60 * 1000) {
-    const expiresAt = Date.now() + ttlMs;
-    sqliteDb
-      .prepare(
-        `INSERT OR REPLACE INTO otp_store (identifier, code, expires_at, attempts)
-         VALUES (?, ?, ?, 0)`
-      )
-      .run(identifier.toLowerCase().trim(), code, expiresAt);
-  },
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
-  /** Get a valid (non-expired) OTP entry */
-  get(identifier: string): { code: string; attempts: number } | null {
-    const row = sqliteDb
-      .prepare(`SELECT code, expires_at, attempts FROM otp_store WHERE identifier = ?`)
-      .get(identifier.toLowerCase().trim()) as
-      | { code: string; expires_at: number; attempts: number }
-      | undefined;
+function preferenceKey(userId: string) {
+  return userId.trim();
+}
 
-    if (!row) return null;
-    if (row.expires_at < Date.now()) {
-      this.delete(identifier);
+function otpKey(identifier: string) {
+  return identifier.toLowerCase().trim();
+}
+
+function readLegacySnapshot(): DatabaseSchema {
+  const legacyFile = path.resolve(process.cwd(), "server", "data", "db.json");
+  try {
+    if (fs.existsSync(legacyFile)) {
+      const parsed = JSON.parse(fs.readFileSync(legacyFile, "utf-8")) as Partial<DatabaseSchema>;
+      const state = emptyState();
+      state.users = Array.isArray(parsed.users) ? parsed.users : [];
+      state.profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+      for (const collection of DOMAIN_COLLECTIONS) {
+        const records = parsed[collection];
+        if (Array.isArray(records)) (state[collection] as unknown) = records;
+      }
+      return state;
+    }
+  } catch (error) {
+    console.warn("[DB] The legacy JSON data could not be imported:", error);
+  }
+
+  // Preserve the current first-run experience once, then store it in PostgreSQL.
+  return createInitialSeedData();
+}
+
+class DatabaseStore {
+  private data = emptyState();
+  private passwordHashes = new Map<string, string | null>();
+  private preferences = new Map<string, Record<string, unknown>>();
+  private otpEntries = new Map<string, { code: string; expiresAt: number; attempts: number }>();
+  private writes: Promise<void> = Promise.resolve();
+
+  readonly ready: Promise<void>;
+
+  constructor() {
+    this.ready = this.initialize();
+  }
+
+  private async initialize() {
+    await this.createSchema();
+    const countResult = await postgresPool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
+    const recordCountResult = await postgresPool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM application_records"
+    );
+
+    if (Number(countResult.rows[0]?.count || 0) === 0 && Number(recordCountResult.rows[0]?.count || 0) === 0) {
+      this.data = readLegacySnapshot();
+      await this.persistState(this.data);
+      console.log("[DB] Imported existing application data into PostgreSQL.");
+    } else {
+      await this.loadState();
+    }
+
+    await this.loadPreferences();
+    await this.loadActiveOtps();
+  }
+
+  private async createSchema() {
+    await postgresPool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        mobile TEXT NOT NULL,
+        password_hash TEXT,
+        data JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+
+      CREATE TABLE IF NOT EXISTS profiles (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS application_records (
+        collection TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (collection, id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_application_records_collection
+        ON application_records (collection);
+      CREATE INDEX IF NOT EXISTS idx_application_records_certificate_user
+        ON application_records ((data->>'userId'))
+        WHERE collection = 'certificates';
+      CREATE INDEX IF NOT EXISTS idx_application_records_competition
+        ON application_records ((data->>'competitionId'));
+
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS otp_store (
+        identifier TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  }
+
+  private async loadState() {
+    const state = emptyState();
+    const [users, profiles, records] = await Promise.all([
+      postgresPool.query<{ data: User; password_hash: string | null }>(
+        "SELECT data, password_hash FROM users ORDER BY created_at ASC"
+      ),
+      postgresPool.query<{ data: StudentProfile }>("SELECT data FROM profiles ORDER BY updated_at ASC"),
+      postgresPool.query<{ collection: string; data: unknown }>(
+        "SELECT collection, data FROM application_records ORDER BY created_at ASC, id ASC"
+      ),
+    ]);
+
+    state.users = users.rows.map((row) => row.data);
+    state.profiles = profiles.rows.map((row) => row.data);
+    this.passwordHashes.clear();
+    for (const row of users.rows) this.passwordHashes.set(row.data.id, row.password_hash);
+
+    for (const row of records.rows) {
+      if (!DOMAIN_COLLECTIONS.includes(row.collection as DomainCollection)) continue;
+      (state[row.collection as DomainCollection] as unknown as unknown[]).push(row.data);
+    }
+    this.data = state;
+  }
+
+  private async loadPreferences() {
+    const result = await postgresPool.query<{ user_id: string; data: Record<string, unknown> }>(
+      "SELECT user_id, data FROM user_preferences"
+    );
+    this.preferences.clear();
+    for (const row of result.rows) this.preferences.set(row.user_id, row.data || {});
+  }
+
+  private async loadActiveOtps() {
+    const now = Date.now();
+    await postgresPool.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
+    const result = await postgresPool.query<{ identifier: string; code: string; expires_at: string; attempts: number }>(
+      "SELECT identifier, code, expires_at, attempts FROM otp_store"
+    );
+    this.otpEntries.clear();
+    for (const row of result.rows) {
+      this.otpEntries.set(row.identifier, {
+        code: row.code,
+        expiresAt: Number(row.expires_at),
+        attempts: row.attempts,
+      });
+    }
+  }
+
+  private async persistState(snapshot: DatabaseSchema) {
+    const client = await postgresPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM application_records");
+      await client.query("DELETE FROM profiles");
+
+      for (const user of snapshot.users) {
+        await client.query(
+          `INSERT INTO users (id, email, mobile, password_hash, data, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+           ON CONFLICT (id) DO UPDATE SET
+             email = EXCLUDED.email,
+             mobile = EXCLUDED.mobile,
+             password_hash = EXCLUDED.password_hash,
+             data = EXCLUDED.data,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            user.id,
+            user.email.toLowerCase().trim(),
+            user.mobile.trim(),
+            this.passwordHashes.get(user.id) ?? null,
+            JSON.stringify(user),
+            user.createdAt || new Date().toISOString(),
+            user.updatedAt || new Date().toISOString(),
+          ]
+        );
+      }
+
+      for (const profile of snapshot.profiles) {
+        await client.query(
+          "INSERT INTO profiles (user_id, data, updated_at) VALUES ($1, $2::jsonb, $3)",
+          [profile.userId, JSON.stringify(profile), profile.updatedAt || new Date().toISOString()]
+        );
+      }
+
+      for (const collection of DOMAIN_COLLECTIONS) {
+        const records = snapshot[collection] as unknown as RawRecord[];
+        for (const record of records) {
+          if (typeof record.id !== "string" || !record.id) {
+            throw new Error(`Cannot store ${collection}: each record requires a stable id.`);
+          }
+          const createdAt = typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString();
+          const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : createdAt;
+          await client.query(
+            `INSERT INTO application_records (collection, id, data, created_at, updated_at)
+             VALUES ($1, $2, $3::jsonb, $4, $5)`,
+            [collection, record.id, JSON.stringify(record), createdAt, updatedAt]
+          );
+        }
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private enqueue(write: () => Promise<void>) {
+    this.writes = this.writes.catch(() => undefined).then(write);
+    this.writes.catch((error) => console.error("[DB] PostgreSQL write failed:", error));
+  }
+
+  public async flush() {
+    await this.ready;
+    await this.writes;
+  }
+
+  public get(): DatabaseSchema {
+    return this.data;
+  }
+
+  public update(updater: (data: DatabaseSchema) => void): DatabaseSchema {
+    const draft = clone(this.data);
+    updater(draft);
+    this.data = draft;
+    const snapshot = clone(draft);
+    this.enqueue(() => this.persistState(snapshot));
+    return this.data;
+  }
+
+  public replacePasswordHash(userId: string, passwordHash: string | null) {
+    this.passwordHashes.set(userId, passwordHash);
+    const snapshot = clone(this.data);
+    this.enqueue(() => this.persistState(snapshot));
+  }
+
+  public getPasswordHash(userId: string) {
+    return this.passwordHashes.get(userId) ?? null;
+  }
+
+  public getPreference(userId: string) {
+    return clone(this.preferences.get(preferenceKey(userId)) ?? {});
+  }
+
+  public updatePreference(userId: string, updates: Record<string, unknown>) {
+    const key = preferenceKey(userId);
+    const next = { ...this.preferences.get(key), ...updates };
+    this.preferences.set(key, next);
+    const snapshot = clone(next);
+    this.enqueue(async () => {
+      await postgresPool.query(
+        `INSERT INTO user_preferences (user_id, data, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+        [key, JSON.stringify(snapshot)]
+      );
+    });
+    return clone(next);
+  }
+
+  public setOtp(identifier: string, code: string, ttlMs: number) {
+    const key = otpKey(identifier);
+    const entry = { code, expiresAt: Date.now() + ttlMs, attempts: 0 };
+    this.otpEntries.set(key, entry);
+    this.enqueue(async () => {
+      await postgresPool.query(
+        `INSERT INTO otp_store (identifier, code, expires_at, attempts)
+         VALUES ($1, $2, $3, 0)
+         ON CONFLICT (identifier) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0`,
+        [key, code, entry.expiresAt]
+      );
+    });
+  }
+
+  public getOtp(identifier: string) {
+    const key = otpKey(identifier);
+    const entry = this.otpEntries.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt < Date.now()) {
+      this.deleteOtp(identifier);
       return null;
     }
-    return { code: row.code, attempts: row.attempts };
-  },
+    return { code: entry.code, attempts: entry.attempts };
+  }
 
-  /** Increment failed attempts */
+  public incrementOtpAttempts(identifier: string) {
+    const key = otpKey(identifier);
+    const entry = this.otpEntries.get(key);
+    if (!entry) return;
+    entry.attempts += 1;
+    this.enqueue(async () => {
+      await postgresPool.query("UPDATE otp_store SET attempts = $1 WHERE identifier = $2", [entry.attempts, key]);
+    });
+  }
+
+  public deleteOtp(identifier: string) {
+    const key = otpKey(identifier);
+    this.otpEntries.delete(key);
+    this.enqueue(async () => {
+      await postgresPool.query("DELETE FROM otp_store WHERE identifier = $1", [key]);
+    });
+  }
+
+  public purgeExpiredOtps() {
+    const now = Date.now();
+    for (const [key, entry] of Array.from(this.otpEntries.entries())) {
+      if (entry.expiresAt < now) this.otpEntries.delete(key);
+    }
+    this.enqueue(async () => {
+      await postgresPool.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
+    });
+  }
+
+  public reset(): DatabaseSchema {
+    this.data = createInitialSeedData();
+    const snapshot = clone(this.data);
+    this.enqueue(() => this.persistState(snapshot));
+    return this.data;
+  }
+}
+
+export const db = new DatabaseStore();
+export const databaseReady = db.ready;
+
+export const otpHelpers = {
+  set(identifier: string, code: string, ttlMs = 10 * 60 * 1000) {
+    db.setOtp(identifier, code, ttlMs);
+  },
+  get(identifier: string) {
+    return db.getOtp(identifier);
+  },
   incrementAttempts(identifier: string) {
-    sqliteDb
-      .prepare(`UPDATE otp_store SET attempts = attempts + 1 WHERE identifier = ?`)
-      .run(identifier.toLowerCase().trim());
+    db.incrementOtpAttempts(identifier);
   },
-
-  /** Delete after successful verify or expiry */
   delete(identifier: string) {
-    sqliteDb
-      .prepare(`DELETE FROM otp_store WHERE identifier = ?`)
-      .run(identifier.toLowerCase().trim());
+    db.deleteOtp(identifier);
   },
-
-  /** Purge all expired OTPs */
   purgeExpired() {
-    sqliteDb.prepare(`DELETE FROM otp_store WHERE expires_at < ?`).run(Date.now());
+    db.purgeExpiredOtps();
   },
 };
 
-// Purge expired OTPs every 5 minutes
-setInterval(() => otpHelpers.purgeExpired(), 5 * 60 * 1000);
-
-// =============================================================================
-// User helpers
-// =============================================================================
 export const userHelpers = {
   findByEmail(email: string) {
-    const row = sqliteDb
-      .prepare(`SELECT * FROM users WHERE lower(email) = lower(?)`)
-      .get(email.trim()) as Record<string, unknown> | undefined;
-    return row ? mapUser(row) : null;
+    const clean = email.trim().toLowerCase();
+    return db.get().users.find((user) => user.email.toLowerCase() === clean) ?? null;
   },
-
   findByMobile(mobile: string) {
     const clean = mobile.replace(/\s+/g, "");
-    const row = sqliteDb
-      .prepare(`SELECT * FROM users WHERE replace(mobile, ' ', '') = ?`)
-      .get(clean) as Record<string, unknown> | undefined;
-    return row ? mapUser(row) : null;
+    return db.get().users.find((user) => user.mobile.replace(/\s+/g, "") === clean) ?? null;
   },
-
   findById(id: string) {
-    const row = sqliteDb.prepare(`SELECT * FROM users WHERE id = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
-    return row ? mapUser(row) : null;
+    return db.get().users.find((user) => user.id === id) ?? null;
   },
-
   findByRollNumber(roll: string) {
-    const row = sqliteDb
-      .prepare(`SELECT * FROM users WHERE lower(roll_number) = lower(?)`)
-      .get(roll.trim()) as Record<string, unknown> | undefined;
-    return row ? mapUser(row) : null;
+    const clean = roll.trim().toLowerCase();
+    return db.get().users.find((user) => user.rollNumber?.toLowerCase() === clean) ?? null;
   },
-
-  findForPasswordLogin(identifier: string): { user: ReturnType<typeof mapUser>; passwordHash: string | null } | null {
+  findForPasswordLogin(identifier: string) {
     const clean = identifier.trim().toLowerCase().replace(/\s+/g, "");
-    const row = sqliteDb
-      .prepare("SELECT * FROM users WHERE lower(email) = lower(?) OR replace(mobile, ' ', '') = ? LIMIT 1")
-      .get(clean, clean) as Record<string, unknown> | undefined;
-    return row ? { user: mapUser(row), passwordHash: (row.password_hash as string) || null } : null;
+    const user = db
+      .get()
+      .users.find(
+        (candidate) =>
+          candidate.email.toLowerCase() === clean || candidate.mobile.replace(/\s+/g, "") === clean
+      );
+    return user ? { user, passwordHash: db.getPasswordHash(user.id) } : null;
   },
-
   setPassword(id: string, passwordHash: string) {
-    sqliteDb.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
-      .run(passwordHash, new Date().toISOString(), id);
+    db.replacePasswordHash(id, passwordHash);
     return this.findById(id);
   },
-
   create(user: {
     id: string;
     email: string;
@@ -257,60 +464,65 @@ export const userHelpers = {
     collegeId?: string;
   }) {
     const now = new Date().toISOString();
-    sqliteDb
-      .prepare(
-        `INSERT INTO users
-           (id, college_id, email, mobile, name, roll_number, role, avatar_url, is_verified_college_user, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-      )
-      .run(
-        user.id,
-        user.collegeId ?? "CAMPUS_MAIN",
-        user.email.toLowerCase().trim(),
-        user.mobile.trim(),
-        user.name.trim(),
-        user.rollNumber?.toUpperCase() ?? null,
-        user.role ?? "student",
-        user.avatarUrl ?? "",
-        now,
-        now
-      );
-    return this.findById(user.id)!;
+    const created: User = {
+      id: user.id,
+      collegeId: user.collegeId ?? "CAMPUS_MAIN",
+      email: user.email.toLowerCase().trim(),
+      mobile: user.mobile.trim(),
+      name: user.name.trim(),
+      rollNumber: user.rollNumber?.toUpperCase(),
+      role: (user.role ?? "student") as User["role"],
+      avatarUrl: user.avatarUrl ?? "",
+      isVerifiedCollegeUser: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.update((draft) => {
+      if (draft.users.some((existing) => existing.email === created.email || existing.id === created.id)) {
+        throw new Error("A user with this account already exists.");
+      }
+      draft.users.push(created);
+    });
+    return created;
   },
-
   updateMobile(id: string, mobile: string) {
-    sqliteDb
-      .prepare(`UPDATE users SET mobile = ?, updated_at = ? WHERE id = ?`)
-      .run(mobile.trim(), new Date().toISOString(), id);
+    db.update((draft) => {
+      const user = draft.users.find((candidate) => candidate.id === id);
+      if (user) {
+        user.mobile = mobile.trim();
+        user.updatedAt = new Date().toISOString();
+      }
+    });
   },
-
   updateRole(id: string, role: string) {
-    sqliteDb
-      .prepare(`UPDATE users SET role = ?, updated_at = ? WHERE id = ?`)
-      .run(role, new Date().toISOString(), id);
+    db.update((draft) => {
+      const user = draft.users.find((candidate) => candidate.id === id);
+      if (user) {
+        user.role = role as User["role"];
+        user.updatedAt = new Date().toISOString();
+      }
+    });
     return this.findById(id);
   },
-
+  updateName(id: string, name: string) {
+    db.update((draft) => {
+      const user = draft.users.find((candidate) => candidate.id === id);
+      if (user) {
+        user.name = name.trim();
+        user.updatedAt = new Date().toISOString();
+      }
+    });
+    return this.findById(id);
+  },
   all() {
-    const rows = sqliteDb.prepare(`SELECT * FROM users ORDER BY created_at DESC`).all() as Record<
-      string,
-      unknown
-    >[];
-    return rows.map(mapUser);
+    return db.get().users;
   },
 };
 
-// =============================================================================
-// Profile helpers
-// =============================================================================
 export const profileHelpers = {
   findByUserId(userId: string) {
-    const row = sqliteDb.prepare(`SELECT * FROM profiles WHERE user_id = ?`).get(userId) as
-      | Record<string, unknown>
-      | undefined;
-    return row ? mapProfile(row) : null;
+    return db.get().profiles.find((profile) => profile.userId === userId) ?? null;
   },
-
   create(profile: {
     id: string;
     userId: string;
@@ -319,199 +531,69 @@ export const profileHelpers = {
     branch?: string;
     year?: string;
   }) {
-    const now = new Date().toISOString();
-    sqliteDb
-      .prepare(
-        `INSERT INTO profiles
-           (id, user_id, name, roll_number, branch, year, face_presence_verified,
-            technical_skills, non_technical_skills, domains, github_url, linkedin_url,
-            portfolio_url, looking_for_team, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, '[]', '[]', '[]', '', '', '', 0, ?)`
-      )
-      .run(
-        profile.id,
-        profile.userId,
-        profile.name,
-        profile.rollNumber ?? null,
-        profile.branch ?? "Computer Science & Engineering",
-        profile.year ?? "1st Year",
-        now
-      );
+    const created: StudentProfile = {
+      id: profile.id,
+      userId: profile.userId,
+      name: profile.name,
+      rollNumber: profile.rollNumber ?? "",
+      branch: profile.branch ?? "Computer Science & Engineering",
+      year: profile.year ?? "1st Year",
+      facePresenceVerified: false,
+      technicalSkills: [],
+      nonTechnicalSkills: [],
+      domains: [],
+      githubUrl: "",
+      linkedinUrl: "",
+      portfolioUrl: "",
+      previousCompetitions: [],
+      projects: [],
+      achievements: [],
+      certificates: [],
+      lookingForTeam: false,
+      updatedAt: new Date().toISOString(),
+    };
+    db.update((draft) => {
+      if (!draft.profiles.some((existing) => existing.userId === created.userId)) draft.profiles.push(created);
+    });
     return this.findByUserId(profile.userId)!;
   },
-
-  update(
-    userId: string,
-    updates: Partial<{
-      name: string;
-      branch: string;
-      year: string;
-      technicalSkills: string[];
-      nonTechnicalSkills: string[];
-      domains: string[];
-      githubUrl: string;
-      linkedinUrl: string;
-      portfolioUrl: string;
-      lookingForTeam: boolean;
-      facePresenceVerified: boolean;
-    }>
-  ) {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-
-    if (updates.name !== undefined) { fields.push("name = ?"); values.push(updates.name); }
-    if (updates.branch !== undefined) { fields.push("branch = ?"); values.push(updates.branch); }
-    if (updates.year !== undefined) { fields.push("year = ?"); values.push(updates.year); }
-    if (updates.technicalSkills !== undefined) { fields.push("technical_skills = ?"); values.push(JSON.stringify(updates.technicalSkills)); }
-    if (updates.nonTechnicalSkills !== undefined) { fields.push("non_technical_skills = ?"); values.push(JSON.stringify(updates.nonTechnicalSkills)); }
-    if (updates.domains !== undefined) { fields.push("domains = ?"); values.push(JSON.stringify(updates.domains)); }
-    if (updates.githubUrl !== undefined) { fields.push("github_url = ?"); values.push(updates.githubUrl); }
-    if (updates.linkedinUrl !== undefined) { fields.push("linkedin_url = ?"); values.push(updates.linkedinUrl); }
-    if (updates.portfolioUrl !== undefined) { fields.push("portfolio_url = ?"); values.push(updates.portfolioUrl); }
-    if (updates.lookingForTeam !== undefined) { fields.push("looking_for_team = ?"); values.push(updates.lookingForTeam ? 1 : 0); }
-    if (updates.facePresenceVerified !== undefined) { fields.push("face_presence_verified = ?"); values.push(updates.facePresenceVerified ? 1 : 0); }
-
-    if (!fields.length) return this.findByUserId(userId);
-    fields.push("updated_at = ?");
-    values.push(new Date().toISOString());
-    values.push(userId);
-
-    sqliteDb.prepare(`UPDATE profiles SET ${fields.join(", ")} WHERE user_id = ?`).run(...values);
+  update(userId: string, updates: Partial<{
+    name: string;
+    branch: string;
+    year: string;
+    technicalSkills: string[];
+    nonTechnicalSkills: string[];
+    domains: string[];
+    githubUrl: string;
+    linkedinUrl: string;
+    portfolioUrl: string;
+    profilePhotoUrl: string;
+    previousCompetitions: string[];
+    projects: Array<{ title: string; description: string; link?: string }>;
+    achievements: string[];
+    certificates: string[];
+    lookingForTeam: boolean;
+    facePresenceVerified: boolean;
+  }>) {
+    db.update((draft) => {
+      const profile = draft.profiles.find((candidate) => candidate.userId === userId);
+      if (profile) Object.assign(profile, updates, { updatedAt: new Date().toISOString() });
+    });
     return this.findByUserId(userId);
   },
-
   allLookingForTeam(excludeUserId?: string) {
-    const rows = sqliteDb
-      .prepare(
-        `SELECT p.*, u.email, u.mobile FROM profiles p
-         JOIN users u ON u.id = p.user_id
-         WHERE p.looking_for_team = 1 AND p.user_id != ?`
-      )
-      .all(excludeUserId ?? "") as Record<string, unknown>[];
-    return rows.map(mapProfile);
+    return db.get().profiles.filter((profile) => profile.lookingForTeam && profile.userId !== excludeUserId);
   },
 };
 
-// =============================================================================
-// Mapping helpers — snake_case DB → camelCase TS
-// =============================================================================
-function mapUser(row: Record<string, unknown>) {
-  return {
-    id: row.id as string,
-    collegeId: row.college_id as string,
-    email: row.email as string,
-    mobile: row.mobile as string,
-    name: row.name as string,
-    rollNumber: (row.roll_number as string) ?? undefined,
-    role: row.role as string,
-    avatarUrl: (row.avatar_url as string) || "",
-    isVerifiedCollegeUser: Boolean(row.is_verified_college_user),
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-  };
-}
+export const preferenceHelpers = {
+  get(userId: string) {
+    return db.getPreference(userId);
+  },
+  update(userId: string, updates: Record<string, unknown>) {
+    return db.updatePreference(userId, updates);
+  },
+};
 
-function mapProfile(row: Record<string, unknown>) {
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    name: row.name as string,
-    rollNumber: (row.roll_number as string) ?? undefined,
-    branch: row.branch as string,
-    year: row.year as string,
-    facePresenceVerified: Boolean(row.face_presence_verified),
-    technicalSkills: JSON.parse((row.technical_skills as string) || "[]") as string[],
-    nonTechnicalSkills: JSON.parse((row.non_technical_skills as string) || "[]") as string[],
-    domains: JSON.parse((row.domains as string) || "[]") as string[],
-    githubUrl: (row.github_url as string) || "",
-    linkedinUrl: (row.linkedin_url as string) || "",
-    portfolioUrl: (row.portfolio_url as string) || "",
-    lookingForTeam: Boolean(row.looking_for_team),
-    updatedAt: row.updated_at as string,
-  };
-}
-
-// =============================================================================
-// Legacy JSON-DB shim — keeps all other services working without changes
-// The JSON db interface is emulated on top of SQLite for competitions, teams, etc.
-// =============================================================================
-import { createInitialSeedData, type DatabaseSchema } from "./seed";
-
-class DatabaseStore {
-  private data: DatabaseSchema;
-
-  constructor() {
-    // Load non-user data from the JSON side (competitions, rounds, etc.)
-    // Users come from SQLite; everything else still uses the JSON store for now.
-    this.data = this.loadOrInit();
-    // Sync users from SQLite into the in-memory data
-    this.syncUsersFromSQLite();
-  }
-
-  private loadOrInit(): DatabaseSchema {
-    const dbDir = path.resolve(process.cwd(), "server", "data");
-    const dbFile = path.join(dbDir, "db.json");
-    try {
-      if (fs.existsSync(dbFile)) {
-        const raw = fs.readFileSync(dbFile, "utf-8");
-        const parsed = JSON.parse(raw) as DatabaseSchema;
-        // Wipe seed users from the JSON side — SQLite is the source of truth
-        parsed.users = [];
-        parsed.profiles = [];
-        return parsed;
-      }
-    } catch {}
-    const initial = createInitialSeedData();
-    initial.users = [];
-    initial.profiles = [];
-    this.persist(initial);
-    return initial;
-  }
-
-  private syncUsersFromSQLite() {
-    this.data.users = userHelpers.all() as DatabaseSchema["users"];
-    this.data.profiles = sqliteDb
-      .prepare("SELECT * FROM profiles")
-      .all()
-      .map((r) => mapProfile(r as Record<string, unknown>)) as DatabaseSchema["profiles"];
-  }
-
-  private persist(data: DatabaseSchema) {
-    const dbDir = path.resolve(process.cwd(), "server", "data");
-    const dbFile = path.join(dbDir, "db.json");
-    try {
-      if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
-      const tmpFile = `${dbFile}.tmp`;
-      fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), "utf-8");
-      fs.renameSync(tmpFile, dbFile);
-    } catch (err) {
-      console.error("[DB] Error saving to db.json:", err);
-    }
-  }
-
-  public get(): DatabaseSchema {
-    // Always return latest users from SQLite
-    this.data.users = userHelpers.all() as DatabaseSchema["users"];
-    this.data.profiles = sqliteDb
-      .prepare("SELECT * FROM profiles")
-      .all()
-      .map((r) => mapProfile(r as Record<string, unknown>)) as DatabaseSchema["profiles"];
-    return this.data;
-  }
-
-  public update(updater: (data: DatabaseSchema) => void): DatabaseSchema {
-    updater(this.data);
-    this.persist(this.data);
-    return this.data;
-  }
-
-  public reset(): DatabaseSchema {
-    this.data = createInitialSeedData();
-    this.data.users = [];
-    this.data.profiles = [];
-    this.persist(this.data);
-    return this.data;
-  }
-}
-
-export const db = new DatabaseStore();
+// Expired verification tokens are periodically removed from PostgreSQL.
+setInterval(() => otpHelpers.purgeExpired(), 5 * 60 * 1000);

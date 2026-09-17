@@ -1,5 +1,5 @@
 // =============================================================================
-// Campus Arena — Auth & Session Service (Real OTPs + SQLite)
+// Campus Arena — Auth & Session Service (Real OTPs + PostgreSQL)
 // =============================================================================
 //
 // OTP Delivery:
@@ -49,6 +49,33 @@ const PLATFORM_ADMIN_EMAIL = (process.env.PLATFORM_ADMIN_EMAIL || "arnavgoel1206
 const PLATFORM_ADMIN_NAME = process.env.PLATFORM_ADMIN_NAME || "Platform Admin";
 const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+// Public credentials are deliberately limited to the seeded accounts used by
+// the product demo. They provide a reliable way to explore each workspace
+// when an email/SMS provider is not configured. Set DEMO_CREDENTIALS_ENABLED
+// to "false" in a real deployment to turn this path off.
+const DEMO_PASSWORD = "Campus@2026";
+const DEMO_CREDENTIALS_ENABLED = process.env.DEMO_CREDENTIALS_ENABLED !== "false";
+const DEMO_ACCOUNT_EMAILS = new Set([
+  "aarav@campus.edu",
+  "organizer@campus.edu",
+  "faculty@campus.edu",
+  "judge@campus.edu",
+  "admin@campus.edu",
+]);
+
+function isDemoAccount(identifier: string) {
+  const email = identifier.trim().toLowerCase().replace(/\s+/g, "");
+  return DEMO_ACCOUNT_EMAILS.has(email);
+}
+
+function hasMatchingDemoCredentials(identifier: string, password: string) {
+  if (!DEMO_CREDENTIALS_ENABLED || !isDemoAccount(identifier)) return false;
+
+  const supplied = Buffer.from(password);
+  const expected = Buffer.from(DEMO_PASSWORD);
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
 
 function isValidMobile(value: string) {
   return value.replace(/\D/g, "").length === 10;
@@ -303,6 +330,19 @@ export class AuthService {
 
   static loginWithPassword(identifier: string, password: string): { success: boolean; user?: User; sessionToken?: string; error?: string } {
     const record = userHelpers.findForPasswordLogin(identifier);
+    if (!DEMO_CREDENTIALS_ENABLED && isDemoAccount(identifier)) {
+      return { success: false, error: "Demo accounts are disabled in this deployment." };
+    }
+    // The initial seed data has role accounts but, by design, no password
+    // hashes. Accept the documented demo password for only those accounts and
+    // persist a normal scrypt hash, so the account keeps working after a
+    // restart and through the ordinary password-login code path.
+    if (record && hasMatchingDemoCredentials(identifier, password)) {
+      if (!record.passwordHash || !passwordMatches(password, record.passwordHash)) {
+        userHelpers.setPassword(record.user.id, hashPassword(password));
+      }
+      return { success: true, user: record.user as User, sessionToken: createToken(record.user.id, "session") };
+    }
     if (!record?.passwordHash) return { success: false, error: "Use OTP to sign in the first time and create a password." };
     if (!passwordMatches(password, record.passwordHash)) return { success: false, error: "Incorrect email/mobile number or password." };
     return { success: true, user: record.user as User, sessionToken: createToken(record.user.id, "session") };
