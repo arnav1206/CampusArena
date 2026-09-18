@@ -1431,7 +1431,7 @@ function TeamDetail({ close }: { close: () => void }) {
 
 /* ── Main Home export ────────────────────────────────────────────────────── */
 export default function Home() {
-  const { user } = useAuth();
+  const { user, notifications, unreadCount } = useAuth();
   const [location, setLocation] = useLocation();
 
   // ── layout state
@@ -1450,7 +1450,6 @@ export default function Home() {
   const [competitions, setCompetitions] = useState<CompCard[]>(STATIC_COMPETITIONS);
   const [rawCompetitions, setRawCompetitions] = useState<Competition[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
 
   // ── modal state
@@ -1492,16 +1491,12 @@ export default function Home() {
       .catch(() => {}); // fall back to static
   }, []);
 
-  // ── load user teams & notifications
+  // ── load user teams (notifications are kept current by AuthContext)
   useEffect(() => {
     if (!user?.id) return;
     fetch(`/api/users/${user.id}/teams`)
       .then((r) => r.json())
       .then((d) => setTeams(d.teams ?? []))
-      .catch(() => {});
-    fetch(`/api/users/${user.id}/notifications`)
-      .then((r) => r.json())
-      .then((d) => setNotifications(d.notifications ?? []))
       .catch(() => {});
     setDataLoaded(true);
   }, [user?.id]);
@@ -1525,8 +1520,6 @@ export default function Home() {
   const goOrganizer = () => { setWorkspace("organizer"); setOrganizerView("overview"); setDetail(null); setTeamDetail(false); setLocation(organizerViewPaths.overview); };
   const goStudent = () => { setWorkspace("student"); setStudentView("home"); setDetail(null); setTeamDetail(false); setLocation(studentViewPaths.home); };
   const openTeam = () => { if (workspace === "student") setTeamDetail(true); else setOrganizerView("team"); };
-
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   // ── if user is judge, show judge portal
   if (user?.role === "judge") {

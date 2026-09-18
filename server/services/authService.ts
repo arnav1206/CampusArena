@@ -47,7 +47,11 @@ const PLATFORM_ADMIN_EMAIL = (process.env.PLATFORM_ADMIN_EMAIL || "arnavgoel1206
   .trim()
   .toLowerCase();
 const PLATFORM_ADMIN_NAME = process.env.PLATFORM_ADMIN_NAME || "Platform Admin";
-const SESSION_SECRET = process.env.AUTH_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const configuredSessionSecret = process.env.AUTH_SESSION_SECRET?.trim();
+if (process.env.NODE_ENV === "production" && !configuredSessionSecret) {
+  throw new Error("AUTH_SESSION_SECRET is required in production.");
+}
+const SESSION_SECRET = configuredSessionSecret || crypto.randomBytes(32).toString("hex");
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 // Public credentials are deliberately limited to the seeded accounts used by
@@ -55,7 +59,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 // when an email/SMS provider is not configured. Set DEMO_CREDENTIALS_ENABLED
 // to "false" in a real deployment to turn this path off.
 const DEMO_PASSWORD = "Campus@2026";
-const DEMO_CREDENTIALS_ENABLED = process.env.DEMO_CREDENTIALS_ENABLED !== "false";
+const DEMO_CREDENTIALS_ENABLED = process.env.DEMO_CREDENTIALS_ENABLED === "true";
 const DEMO_ACCOUNT_EMAILS = new Set([
   "aarav@campus.edu",
   "organizer@campus.edu",

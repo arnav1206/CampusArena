@@ -28,6 +28,17 @@ CampusArena is a comprehensive Campus Competition Tool designed to simplify the 
 
 `DATABASE_URL` is required for the API server. On its first connection, CampusArena creates the PostgreSQL schema and imports the existing `server/data/db.json` data once. After that, PostgreSQL stores all platform records—including users, profiles, competition configuration, teams, payments, submissions, notifications, and certificates. Account preferences are stored separately and restored after sign-in; the current theme preference is the first setting wired to this flow.
 
+## Deploying to Vercel
+
+Set these **Production** environment variables in Vercel before deploying:
+
+- `DATABASE_URL` — the Supabase Transaction Pooler URL (TLS enabled).
+- `AUTH_SESSION_SECRET` — a unique, long random value. The application deliberately refuses production startup without it.
+- `DEMO_CREDENTIALS_ENABLED=false` — prevents public demo-account passwords from working in production.
+- `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_NAME` — the administrator identity you control.
+
+The Vercel host must be able to reach the Supabase pooler on port `6543`. Keep `DATABASE_URL` server-only; never expose it in a `VITE_*` frontend variable.
+
 ## Demo accounts
 
 Use the **Password** sign-in method with the password `Campus@2026`:

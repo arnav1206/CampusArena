@@ -21,7 +21,12 @@ if (!databaseUrl) {
 
 export const postgresPool = new Pool({
   connectionString: databaseUrl,
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
+  // Supabase requires TLS for both direct and pooler connections, including
+  // when this server is running locally. Other local PostgreSQL instances
+  // remain usable without TLS during development.
+  ssl: process.env.NODE_ENV === "production" || databaseUrl.includes(".supabase.com")
+    ? { rejectUnauthorized: false }
+    : undefined,
 });
 
 type DomainCollection = Exclude<keyof DatabaseSchema, "users" | "profiles">;

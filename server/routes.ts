@@ -57,7 +57,7 @@ function requireAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-function requirePreferenceOwner(req: Request, res: Response, userId: string) {
+function requireAccountOwner(req: Request, res: Response, userId: string) {
   const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
   if (!sessionUser) {
     res.status(401).json({ success: false, error: "A valid signed-in session is required." });
@@ -169,12 +169,12 @@ apiRouter.get("/users", (_req: Request, res: Response) => {
 // Account preferences are stored server-side so a user's choices are restored
 // when they sign in on another browser or device.
 apiRouter.get("/users/:userId/preferences", (req: Request, res: Response) => {
-  if (!requirePreferenceOwner(req, res, req.params.userId)) return;
+  if (!requireAccountOwner(req, res, req.params.userId)) return;
   res.json({ preferences: preferenceHelpers.get(req.params.userId) });
 });
 
 apiRouter.put("/users/:userId/preferences", (req: Request, res: Response) => {
-  if (!requirePreferenceOwner(req, res, req.params.userId)) return;
+  if (!requireAccountOwner(req, res, req.params.userId)) return;
   const { preferences } = req.body as { preferences?: unknown };
   if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) {
     return res.status(400).json({ success: false, error: "Preferences must be an object." });
@@ -578,16 +578,27 @@ apiRouter.get("/competitions/:id/reviews", (req: Request, res: Response) => {
 // 10. Notifications & Announcements
 // -----------------------------------------------------------------------------
 apiRouter.get("/users/:userId/notifications", (req: Request, res: Response) => {
+  if (!requireAccountOwner(req, res, req.params.userId)) return;
   const notifications = NotificationService.getNotificationsForUser(req.params.userId);
   res.json({ notifications });
 });
 
 apiRouter.post("/notifications/:id/read", (req: Request, res: Response) => {
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!sessionUser) {
+    return res.status(401).json({ success: false, error: "A valid signed-in session is required." });
+  }
+  const notification = NotificationService.getNotificationById(req.params.id);
+  if (!notification) return res.status(404).json({ success: false, error: "Notification not found." });
+  if (notification.userId !== sessionUser.id && sessionUser.role !== "admin") {
+    return res.status(403).json({ success: false, error: "You can only update your own notifications." });
+  }
   NotificationService.markAsRead(req.params.id);
   res.json({ success: true });
 });
 
 apiRouter.post("/users/:userId/notifications/read-all", (req: Request, res: Response) => {
+  if (!requireAccountOwner(req, res, req.params.userId)) return;
   NotificationService.markAllAsRead(req.params.userId);
   res.json({ success: true });
 });
@@ -595,7 +606,8 @@ apiRouter.post("/users/:userId/notifications/read-all", (req: Request, res: Resp
 apiRouter.post("/admin/notifications/broadcast", (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const result = NotificationService.broadcastPlatformNotice(req.body);
+    const senderUserId = AuthService.getSessionUser(req.header("x-session-token"))!.id;
+    const result = NotificationService.broadcastPlatformNotice({ ...req.body, senderUserId });
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Unable to send notice." });

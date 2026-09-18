@@ -9,6 +9,10 @@ import type {
 } from "../../shared/types.js";
 
 export class NotificationService {
+  static getNotificationById(notificationId: string): PlatformNotification | undefined {
+    return db.get().notifications.find((notification) => notification.id === notificationId);
+  }
+
   static getNotificationsForUser(userId: string): PlatformNotification[] {
     return db
       .get()
@@ -46,9 +50,9 @@ export class NotificationService {
     const now = new Date().toISOString();
     let recipientCount = 0;
     db.update((draft) => {
-      const recipients = draft.users.filter((user) =>
-        user.id !== params.senderUserId && (params.targetRole || "all") === "all" ||
-        user.id !== params.senderUserId && user.role === params.targetRole
+      const targetRole = params.targetRole || "all";
+      const recipients = draft.users.filter(
+        (user) => user.id !== params.senderUserId && (targetRole === "all" || user.role === targetRole)
       );
       recipientCount = recipients.length;
       recipients.forEach((recipient, index) => draft.notifications.unshift({

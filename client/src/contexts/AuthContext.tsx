@@ -2,7 +2,7 @@
 // Campus Arena — Global Authentication & Session Context
 // =============================================================================
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { User, StudentProfile, PlatformRole, PlatformNotification } from "@shared/types";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ import {
   apiSetupPassword,
   apiGetUserPreferences,
   apiUpdateUserPreferences,
+  getSessionHeaders,
 } from "@/lib/authClientDb";
 import { useTheme } from "./ThemeContext";
 
@@ -38,6 +39,7 @@ interface AuthContextType {
   switchUser: (userId: string) => Promise<void>;
   updateProfile: (updates: Partial<StudentProfile>) => Promise<boolean>;
   refreshUserData: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   logout: () => void;
@@ -71,6 +73,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void apiUpdateUserPreferences(user.id, { theme });
   }, [theme, user?.id, preferencesLoadedFor]);
 
+  const loadNotifications = useCallback(async (userId: string) => {
+    const response = await fetch(`/api/users/${userId}/notifications`, { headers: getSessionHeaders() });
+    if (!response.ok) throw new Error("Unable to load notifications.");
+    const data = await response.json();
+    setNotifications(data.notifications || []);
+  }, []);
+
+  const refreshNotifications = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      await loadNotifications(user.id);
+    } catch {
+      // Keep the last successful list visible while a transient refresh fails.
+    }
+  }, [loadNotifications, user?.id]);
+
+  // Polling keeps in-app notices current for recipients while they remain on a
+  // dashboard. The API is the source of truth, so this also works after a reload.
+  useEffect(() => {
+    if (!user?.id) return;
+    void refreshNotifications();
+    const interval = window.setInterval(() => void refreshNotifications(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [refreshNotifications, user?.id]);
+
   async function loadUser(userId: string) {
     try {
       setLoading(true);
@@ -94,13 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPreferencesLoadedFor(userData.user.id);
 
         // Load notifications
-        try {
-          const notifRes = await fetch(`/api/users/${userData.user.id}/notifications`);
-          if (notifRes.ok) {
-            const nData = await notifRes.json();
-            setNotifications(nData.notifications || []);
-          }
-        } catch {}
+        await loadNotifications(userData.user.id).catch(() => undefined);
       }
     } catch (err) {
       console.error("[AUTH] Error loading user data:", err);
@@ -277,7 +298,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function markNotificationRead(id: string) {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      const response = await fetch(`/api/notifications/${id}/read`, { method: "POST", headers: getSessionHeaders() });
+      if (!response.ok) throw new Error("Unable to mark notification as read.");
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
       );
@@ -289,7 +311,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function markAllNotificationsRead() {
     if (!user) return;
     try {
-      await fetch(`/api/users/${user.id}/notifications/read-all`, { method: "POST" });
+      const response = await fetch(`/api/users/${user.id}/notifications/read-all`, { method: "POST", headers: getSessionHeaders() });
+      if (!response.ok) throw new Error("Unable to mark notifications as read.");
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       toast.success("All notifications marked as read");
     } catch (err) {
@@ -328,6 +351,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         switchUser,
         updateProfile,
         refreshUserData,
+        refreshNotifications,
         markNotificationRead,
         markAllNotificationsRead,
         logout,
