@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user?.id) return;
     void refreshNotifications();
-    const interval = window.setInterval(() => void refreshNotifications(), 30_000);
+    const interval = window.setInterval(() => void refreshNotifications(), 10_000);
     return () => window.clearInterval(interval);
   }, [refreshNotifications, user?.id]);
 

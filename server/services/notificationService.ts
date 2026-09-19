@@ -52,7 +52,7 @@ export class NotificationService {
     db.update((draft) => {
       const targetRole = params.targetRole || "all";
       const recipients = draft.users.filter(
-        (user) => user.id !== params.senderUserId && (targetRole === "all" || user.role === targetRole)
+        (user) => targetRole === "all" || user.role === targetRole
       );
       recipientCount = recipients.length;
       recipients.forEach((recipient, index) => draft.notifications.unshift({

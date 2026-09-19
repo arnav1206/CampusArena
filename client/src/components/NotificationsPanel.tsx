@@ -1,14 +1,20 @@
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Bell, CheckCheck, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
 type Props = { open: boolean; onClose: () => void };
 
 export function NotificationsPanel({ open, onClose }: Props) {
-  const { notifications, markNotificationRead, markAllNotificationsRead, unreadCount } = useAuth();
+  const { notifications, markNotificationRead, markAllNotificationsRead, refreshNotifications, unreadCount } = useAuth();
+
+  useEffect(() => {
+    if (open) void refreshNotifications();
+  }, [open, refreshNotifications]);
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Notifications">
+  return createPortal(
+    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Notifications">
       <button aria-label="Close notifications" onClick={onClose} className="absolute inset-0 bg-[#172017]/25 backdrop-blur-[1px]" />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-[420px] flex-col border-l border-[#e2e6dc] bg-[#fbfcf8] shadow-2xl dark:border-[#2c3c2d] dark:bg-[#142016]">
         <div className="flex items-center justify-between border-b border-[#e6e9e2] px-5 py-5 dark:border-[#2c3c2d]">
@@ -33,6 +39,7 @@ export function NotificationsPanel({ open, onClose }: Props) {
           ))}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "../contexts/AuthContext";
+import { NotificationsPanel } from "../components/NotificationsPanel";
 import { getSessionHeaders } from "../lib/authClientDb";
 
 /* ── tiny helpers (same design tokens as Home.tsx) ─────────────────────── */
@@ -168,7 +169,8 @@ function AuditLogRow({ entry }: { entry: any }) {
 
 /* ── Main AdminPortal ───────────────────────────────────────────────────── */
 export default function AdminPortal() {
-  const { user, logout } = useAuth();
+  const { user, logout, unreadCount } = useAuth();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [, setLocation] = useLocation();
 
   const [metrics, setMetrics] = useState<any>(null);
@@ -276,6 +278,7 @@ export default function AdminPortal() {
           <button onClick={loadData} className="grid h-10 w-10 place-items-center rounded-xl border border-[#e0dfd8] bg-white text-[#596158] shadow-sm transition hover:bg-[#f5f5f0] dark:border-[#354536] dark:bg-[#1d2a1e] dark:text-[#d4e1d2] dark:hover:bg-[#273828]" title="Refresh data">
             <RefreshCw size={17} />
           </button>
+          <button onClick={() => setNotificationsOpen(true)} aria-label="Open notifications" title="Open notifications" className="relative grid h-10 w-10 place-items-center rounded-xl border border-[#e0dfd8] bg-white text-[#596158] shadow-sm transition hover:bg-[#f5f5f0] dark:border-[#354536] dark:bg-[#1d2a1e] dark:text-[#d4e1d2] dark:hover:bg-[#273828]"><Bell size={17} />{unreadCount > 0 && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#e55d5d] ring-2 ring-white dark:ring-[#1d2a1e]" />}</button>
           <button onClick={handleLogout} aria-label="Sign out" title="Sign out" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#f0d8d8] bg-[#fef4f4] px-3 text-xs font-bold text-[#aa3030] transition hover:bg-[#fde8e8] dark:border-[#573033] dark:bg-[#2a1818] dark:text-[#ffaaaa]">
             <LogOut size={15} /><span className="hidden sm:inline">Sign out</span>
           </button>
@@ -510,6 +513,8 @@ export default function AdminPortal() {
           </div>
         )}
       </main>
+
+      <NotificationsPanel open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
 
       {/* Dispute resolution modal */}
       {selectedDispute && (
