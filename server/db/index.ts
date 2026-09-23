@@ -1,34 +1,79 @@
 // =============================================================================
-// Campus Arena — PostgreSQL persistent storage
+// Campus Arena — Storage Layer (PostgreSQL preferred, JSON-file fallback)
 // =============================================================================
-// PostgreSQL is the single runtime source of truth. The service layer keeps its
-// synchronous state API, while writes are committed in an ordered database
-// queue and each API response waits for that queue before it is sent.
+// When DATABASE_URL is set, PostgreSQL is the single runtime source of truth.
+// When it is absent (local dev without a DB), a JSON file in server/data/ is
+// used instead so every feature — including notifications — works out of the box.
 
-import { Pool } from "pg";
 import path from "node:path";
 import fs from "node:fs";
 import { createInitialSeedData, type DatabaseSchema } from "./seed.js";
 import type { StudentProfile, User } from "../../shared/types.js";
 
-const databaseUrl = process.env.DATABASE_URL?.trim();
+// ---------------------------------------------------------------------------
+// JSON-file store (used when PostgreSQL is unavailable)
+// ---------------------------------------------------------------------------
+const DATA_DIR = path.resolve(process.cwd(), "server", "data");
+const DB_FILE = path.join(DATA_DIR, "db.json");
 
-if (!databaseUrl) {
-  throw new Error(
-    "DATABASE_URL is required. Configure a PostgreSQL connection string before starting Campus Arena."
-  );
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-export const postgresPool = new Pool({
-  connectionString: databaseUrl,
-  // Supabase requires TLS for both direct and pooler connections, including
-  // when this server is running locally. Other local PostgreSQL instances
-  // remain usable without TLS during development.
-  ssl: process.env.NODE_ENV === "production" || databaseUrl.includes(".supabase.com")
-    ? { rejectUnauthorized: false }
-    : undefined,
-});
+function readJsonFile(): DatabaseSchema {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(DB_FILE, "utf-8")) as Partial<DatabaseSchema>;
+      const state = emptyState();
+      if (Array.isArray(parsed.users)) state.users = parsed.users;
+      if (Array.isArray(parsed.profiles)) state.profiles = parsed.profiles;
+      for (const col of DOMAIN_COLLECTIONS) {
+        const records = parsed[col];
+        if (Array.isArray(records)) (state[col] as unknown) = records;
+      }
+      return state;
+    }
+  } catch (err) {
+    console.warn("[DB] Could not read db.json — starting fresh:", err);
+  }
+  return createInitialSeedData();
+}
 
+function writeJsonFile(state: DatabaseSchema) {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[DB] Could not write db.json:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL (optional)
+// ---------------------------------------------------------------------------
+const databaseUrl = process.env.DATABASE_URL?.trim();
+let postgresPool: import("pg").Pool | null = null;
+
+if (databaseUrl) {
+  const { Pool } = await import("pg");
+  postgresPool = new Pool({
+    connectionString: databaseUrl,
+    ssl:
+      process.env.NODE_ENV === "production" || databaseUrl.includes(".supabase.com")
+        ? { rejectUnauthorized: false }
+        : undefined,
+  });
+  console.log("[DB] PostgreSQL connection configured.");
+} else {
+  console.log("[DB] DATABASE_URL not set — using local JSON file store (server/data/db.json).");
+}
+
+export { postgresPool };
+
+// ---------------------------------------------------------------------------
+// Shared domain collections (same as before)
+// ---------------------------------------------------------------------------
 type DomainCollection = Exclude<keyof DatabaseSchema, "users" | "profiles">;
 
 const DOMAIN_COLLECTIONS = [
@@ -79,28 +124,151 @@ function otpKey(identifier: string) {
   return identifier.toLowerCase().trim();
 }
 
-function readLegacySnapshot(): DatabaseSchema {
-  const legacyFile = path.resolve(process.cwd(), "server", "data", "db.json");
-  try {
-    if (fs.existsSync(legacyFile)) {
-      const parsed = JSON.parse(fs.readFileSync(legacyFile, "utf-8")) as Partial<DatabaseSchema>;
-      const state = emptyState();
-      state.users = Array.isArray(parsed.users) ? parsed.users : [];
-      state.profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
-      for (const collection of DOMAIN_COLLECTIONS) {
-        const records = parsed[collection];
-        if (Array.isArray(records)) (state[collection] as unknown) = records;
-      }
-      return state;
-    }
-  } catch (error) {
-    console.warn("[DB] The legacy JSON data could not be imported:", error);
-  }
+// ---------------------------------------------------------------------------
+// PostgreSQL schema & persistence helpers
+// ---------------------------------------------------------------------------
+async function createSchema() {
+  if (!postgresPool) return;
+  await postgresPool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      mobile TEXT NOT NULL,
+      password_hash TEXT,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    );
 
-  // Preserve the current first-run experience once, then store it in PostgreSQL.
-  return createInitialSeedData();
+    CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
+
+    CREATE TABLE IF NOT EXISTS profiles (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS application_records (
+      collection TEXT NOT NULL,
+      id TEXT NOT NULL,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY (collection, id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_application_records_collection
+      ON application_records (collection);
+    CREATE INDEX IF NOT EXISTS idx_application_records_certificate_user
+      ON application_records ((data->>'userId'))
+      WHERE collection = 'certificates';
+    CREATE INDEX IF NOT EXISTS idx_application_records_competition
+      ON application_records ((data->>'competitionId'));
+
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS otp_store (
+      identifier TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0
+    );
+  `);
 }
 
+async function pgLoadState(passwordHashes: Map<string, string | null>): Promise<DatabaseSchema> {
+  if (!postgresPool) throw new Error("No PG pool");
+  const state = emptyState();
+  const [users, profiles, records] = await Promise.all([
+    postgresPool.query<{ data: User; password_hash: string | null }>(
+      "SELECT data, password_hash FROM users ORDER BY created_at ASC"
+    ),
+    postgresPool.query<{ data: StudentProfile }>("SELECT data FROM profiles ORDER BY updated_at ASC"),
+    postgresPool.query<{ collection: string; data: unknown }>(
+      "SELECT collection, data FROM application_records ORDER BY created_at ASC, id ASC"
+    ),
+  ]);
+
+  state.users = users.rows.map((row) => row.data);
+  state.profiles = profiles.rows.map((row) => row.data);
+  passwordHashes.clear();
+  for (const row of users.rows) passwordHashes.set(row.data.id, row.password_hash);
+
+  for (const row of records.rows) {
+    if (!DOMAIN_COLLECTIONS.includes(row.collection as DomainCollection)) continue;
+    (state[row.collection as DomainCollection] as unknown as unknown[]).push(row.data);
+  }
+  return state;
+}
+
+async function pgPersistState(snapshot: DatabaseSchema, passwordHashes: Map<string, string | null>) {
+  if (!postgresPool) return;
+  const client = await postgresPool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM application_records");
+    await client.query("DELETE FROM profiles");
+
+    for (const user of snapshot.users) {
+      await client.query(
+        `INSERT INTO users (id, email, mobile, password_hash, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           email = EXCLUDED.email,
+           mobile = EXCLUDED.mobile,
+           password_hash = EXCLUDED.password_hash,
+           data = EXCLUDED.data,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          user.id,
+          user.email.toLowerCase().trim(),
+          user.mobile.trim(),
+          passwordHashes.get(user.id) ?? null,
+          JSON.stringify(user),
+          user.createdAt || new Date().toISOString(),
+          user.updatedAt || new Date().toISOString(),
+        ]
+      );
+    }
+
+    for (const profile of snapshot.profiles) {
+      await client.query(
+        "INSERT INTO profiles (user_id, data, updated_at) VALUES ($1, $2::jsonb, $3)",
+        [profile.userId, JSON.stringify(profile), profile.updatedAt || new Date().toISOString()]
+      );
+    }
+
+    for (const collection of DOMAIN_COLLECTIONS) {
+      const records = snapshot[collection] as unknown as RawRecord[];
+      for (const record of records) {
+        if (typeof record.id !== "string" || !record.id) {
+          throw new Error(`Cannot store ${collection}: each record requires a stable id.`);
+        }
+        const createdAt = typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString();
+        const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : createdAt;
+        await client.query(
+          `INSERT INTO application_records (collection, id, data, created_at, updated_at)
+           VALUES ($1, $2, $3::jsonb, $4, $5)`,
+          [collection, record.id, JSON.stringify(record), createdAt, updatedAt]
+        );
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DatabaseStore — unified in-memory store with pluggable persistence
+// ---------------------------------------------------------------------------
 class DatabaseStore {
   private data = emptyState();
   private passwordHashes = new Map<string, string | null>();
@@ -115,187 +283,70 @@ class DatabaseStore {
   }
 
   private async initialize() {
-    await this.createSchema();
-    const countResult = await postgresPool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
-    const recordCountResult = await postgresPool.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM application_records"
-    );
-
-    if (Number(countResult.rows[0]?.count || 0) === 0 && Number(recordCountResult.rows[0]?.count || 0) === 0) {
-      this.data = readLegacySnapshot();
-      await this.persistState(this.data);
-      console.log("[DB] Imported existing application data into PostgreSQL.");
-    } else {
-      await this.loadState();
-    }
-
-    await this.loadPreferences();
-    await this.loadActiveOtps();
-  }
-
-  private async createSchema() {
-    await postgresPool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        mobile TEXT NOT NULL,
-        password_hash TEXT,
-        data JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
+    if (postgresPool) {
+      await createSchema();
+      const countResult = await postgresPool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
+      const recordCountResult = await postgresPool.query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM application_records"
       );
 
-      CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
-
-      CREATE TABLE IF NOT EXISTS profiles (
-        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-        data JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS application_records (
-        collection TEXT NOT NULL,
-        id TEXT NOT NULL,
-        data JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (collection, id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_application_records_collection
-        ON application_records (collection);
-      CREATE INDEX IF NOT EXISTS idx_application_records_certificate_user
-        ON application_records ((data->>'userId'))
-        WHERE collection = 'certificates';
-      CREATE INDEX IF NOT EXISTS idx_application_records_competition
-        ON application_records ((data->>'competitionId'));
-
-      CREATE TABLE IF NOT EXISTS user_preferences (
-        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-        data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS otp_store (
-        identifier TEXT PRIMARY KEY,
-        code TEXT NOT NULL,
-        expires_at BIGINT NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-  }
-
-  private async loadState() {
-    const state = emptyState();
-    const [users, profiles, records] = await Promise.all([
-      postgresPool.query<{ data: User; password_hash: string | null }>(
-        "SELECT data, password_hash FROM users ORDER BY created_at ASC"
-      ),
-      postgresPool.query<{ data: StudentProfile }>("SELECT data FROM profiles ORDER BY updated_at ASC"),
-      postgresPool.query<{ collection: string; data: unknown }>(
-        "SELECT collection, data FROM application_records ORDER BY created_at ASC, id ASC"
-      ),
-    ]);
-
-    state.users = users.rows.map((row) => row.data);
-    state.profiles = profiles.rows.map((row) => row.data);
-    this.passwordHashes.clear();
-    for (const row of users.rows) this.passwordHashes.set(row.data.id, row.password_hash);
-
-    for (const row of records.rows) {
-      if (!DOMAIN_COLLECTIONS.includes(row.collection as DomainCollection)) continue;
-      (state[row.collection as DomainCollection] as unknown as unknown[]).push(row.data);
-    }
-    this.data = state;
-  }
-
-  private async loadPreferences() {
-    const result = await postgresPool.query<{ user_id: string; data: Record<string, unknown> }>(
-      "SELECT user_id, data FROM user_preferences"
-    );
-    this.preferences.clear();
-    for (const row of result.rows) this.preferences.set(row.user_id, row.data || {});
-  }
-
-  private async loadActiveOtps() {
-    const now = Date.now();
-    await postgresPool.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
-    const result = await postgresPool.query<{ identifier: string; code: string; expires_at: string; attempts: number }>(
-      "SELECT identifier, code, expires_at, attempts FROM otp_store"
-    );
-    this.otpEntries.clear();
-    for (const row of result.rows) {
-      this.otpEntries.set(row.identifier, {
-        code: row.code,
-        expiresAt: Number(row.expires_at),
-        attempts: row.attempts,
-      });
-    }
-  }
-
-  private async persistState(snapshot: DatabaseSchema) {
-    const client = await postgresPool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("DELETE FROM application_records");
-      await client.query("DELETE FROM profiles");
-
-      for (const user of snapshot.users) {
-        await client.query(
-          `INSERT INTO users (id, email, mobile, password_hash, data, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-           ON CONFLICT (id) DO UPDATE SET
-             email = EXCLUDED.email,
-             mobile = EXCLUDED.mobile,
-             password_hash = EXCLUDED.password_hash,
-             data = EXCLUDED.data,
-             updated_at = EXCLUDED.updated_at`,
-          [
-            user.id,
-            user.email.toLowerCase().trim(),
-            user.mobile.trim(),
-            this.passwordHashes.get(user.id) ?? null,
-            JSON.stringify(user),
-            user.createdAt || new Date().toISOString(),
-            user.updatedAt || new Date().toISOString(),
-          ]
-        );
-      }
-
-      for (const profile of snapshot.profiles) {
-        await client.query(
-          "INSERT INTO profiles (user_id, data, updated_at) VALUES ($1, $2::jsonb, $3)",
-          [profile.userId, JSON.stringify(profile), profile.updatedAt || new Date().toISOString()]
-        );
-      }
-
-      for (const collection of DOMAIN_COLLECTIONS) {
-        const records = snapshot[collection] as unknown as RawRecord[];
-        for (const record of records) {
-          if (typeof record.id !== "string" || !record.id) {
-            throw new Error(`Cannot store ${collection}: each record requires a stable id.`);
+      if (
+        Number(countResult.rows[0]?.count || 0) === 0 &&
+        Number(recordCountResult.rows[0]?.count || 0) === 0
+      ) {
+        // Try to import legacy JSON snapshot, otherwise seed fresh
+        const legacyFile = path.resolve(process.cwd(), "server", "data", "db.json");
+        if (fs.existsSync(legacyFile)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(legacyFile, "utf-8")) as Partial<DatabaseSchema>;
+            const state = emptyState();
+            if (Array.isArray(parsed.users)) state.users = parsed.users;
+            if (Array.isArray(parsed.profiles)) state.profiles = parsed.profiles;
+            for (const col of DOMAIN_COLLECTIONS) {
+              const records = parsed[col];
+              if (Array.isArray(records)) (state[col] as unknown) = records;
+            }
+            this.data = state;
+          } catch {
+            this.data = createInitialSeedData();
           }
-          const createdAt = typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString();
-          const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : createdAt;
-          await client.query(
-            `INSERT INTO application_records (collection, id, data, created_at, updated_at)
-             VALUES ($1, $2, $3::jsonb, $4, $5)`,
-            [collection, record.id, JSON.stringify(record), createdAt, updatedAt]
-          );
+        } else {
+          this.data = createInitialSeedData();
         }
+        await pgPersistState(this.data, this.passwordHashes);
+        console.log("[DB] Imported application data into PostgreSQL.");
+      } else {
+        this.data = await pgLoadState(this.passwordHashes);
       }
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+
+      // Load preferences & OTPs from PG
+      const prefResult = await postgresPool.query<{ user_id: string; data: Record<string, unknown> }>(
+        "SELECT user_id, data FROM user_preferences"
+      );
+      for (const row of prefResult.rows) this.preferences.set(row.user_id, row.data || {});
+
+      const now = Date.now();
+      await postgresPool.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
+      const otpResult = await postgresPool.query<{
+        identifier: string; code: string; expires_at: string; attempts: number;
+      }>("SELECT identifier, code, expires_at, attempts FROM otp_store");
+      for (const row of otpResult.rows) {
+        this.otpEntries.set(row.identifier, {
+          code: row.code,
+          expiresAt: Number(row.expires_at),
+          attempts: row.attempts,
+        });
+      }
+    } else {
+      // JSON file fallback
+      this.data = readJsonFile();
+      console.log("[DB] Loaded data from server/data/db.json.");
     }
   }
 
   private enqueue(write: () => Promise<void>) {
     this.writes = this.writes.catch(() => undefined).then(write);
-    this.writes.catch((error) => console.error("[DB] PostgreSQL write failed:", error));
+    this.writes.catch((error) => console.error("[DB] Write failed:", error));
   }
 
   public async flush() {
@@ -312,18 +363,37 @@ class DatabaseStore {
     updater(draft);
     this.data = draft;
     const snapshot = clone(draft);
-    this.enqueue(() => this.persistState(snapshot));
+    if (postgresPool) {
+      this.enqueue(() => pgPersistState(snapshot, this.passwordHashes));
+    } else {
+      this.enqueue(async () => writeJsonFile(snapshot));
+    }
     return this.data;
   }
 
   public replacePasswordHash(userId: string, passwordHash: string | null) {
     this.passwordHashes.set(userId, passwordHash);
     const snapshot = clone(this.data);
-    this.enqueue(() => this.persistState(snapshot));
+    if (postgresPool) {
+      this.enqueue(() => pgPersistState(snapshot, this.passwordHashes));
+    } else {
+      // Persist password hashes inside the user record for JSON mode
+      this.enqueue(async () => {
+        const state = clone(this.data);
+        // Embed hash in a side-channel field so JSON mode survives restarts
+        const user = state.users.find((u) => u.id === userId);
+        if (user) (user as any).__passwordHash = passwordHash;
+        writeJsonFile(state);
+      });
+    }
   }
 
   public getPasswordHash(userId: string) {
-    return this.passwordHashes.get(userId) ?? null;
+    // In JSON mode, try the in-memory map first, then the embedded field
+    const mapHash = this.passwordHashes.get(userId);
+    if (mapHash !== undefined) return mapHash;
+    const user = this.data.users.find((u) => u.id === userId);
+    return (user as any)?.__passwordHash ?? null;
   }
 
   public getPreference(userId: string) {
@@ -335,14 +405,24 @@ class DatabaseStore {
     const next = { ...this.preferences.get(key), ...updates };
     this.preferences.set(key, next);
     const snapshot = clone(next);
-    this.enqueue(async () => {
-      await postgresPool.query(
-        `INSERT INTO user_preferences (user_id, data, updated_at)
-         VALUES ($1, $2::jsonb, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-        [key, JSON.stringify(snapshot)]
-      );
-    });
+    if (postgresPool) {
+      this.enqueue(async () => {
+        await postgresPool!.query(
+          `INSERT INTO user_preferences (user_id, data, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+          [key, JSON.stringify(snapshot)]
+        );
+      });
+    } else {
+      // Persist preferences inside db.json under a __preferences key on users
+      this.enqueue(async () => {
+        const state = clone(this.data);
+        const user = state.users.find((u) => u.id === userId);
+        if (user) (user as any).__preferences = snapshot;
+        writeJsonFile(state);
+      });
+    }
     return clone(next);
   }
 
@@ -350,14 +430,17 @@ class DatabaseStore {
     const key = otpKey(identifier);
     const entry = { code, expiresAt: Date.now() + ttlMs, attempts: 0 };
     this.otpEntries.set(key, entry);
-    this.enqueue(async () => {
-      await postgresPool.query(
-        `INSERT INTO otp_store (identifier, code, expires_at, attempts)
-         VALUES ($1, $2, $3, 0)
-         ON CONFLICT (identifier) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0`,
-        [key, code, entry.expiresAt]
-      );
-    });
+    if (postgresPool) {
+      this.enqueue(async () => {
+        await postgresPool!.query(
+          `INSERT INTO otp_store (identifier, code, expires_at, attempts)
+           VALUES ($1, $2, $3, 0)
+           ON CONFLICT (identifier) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, attempts = 0`,
+          [key, code, entry.expiresAt]
+        );
+      });
+    }
+    // In JSON mode, OTPs only survive in-memory (they expire quickly anyway)
   }
 
   public getOtp(identifier: string) {
@@ -376,17 +459,21 @@ class DatabaseStore {
     const entry = this.otpEntries.get(key);
     if (!entry) return;
     entry.attempts += 1;
-    this.enqueue(async () => {
-      await postgresPool.query("UPDATE otp_store SET attempts = $1 WHERE identifier = $2", [entry.attempts, key]);
-    });
+    if (postgresPool) {
+      this.enqueue(async () => {
+        await postgresPool!.query("UPDATE otp_store SET attempts = $1 WHERE identifier = $2", [entry.attempts, key]);
+      });
+    }
   }
 
   public deleteOtp(identifier: string) {
     const key = otpKey(identifier);
     this.otpEntries.delete(key);
-    this.enqueue(async () => {
-      await postgresPool.query("DELETE FROM otp_store WHERE identifier = $1", [key]);
-    });
+    if (postgresPool) {
+      this.enqueue(async () => {
+        await postgresPool!.query("DELETE FROM otp_store WHERE identifier = $1", [key]);
+      });
+    }
   }
 
   public purgeExpiredOtps() {
@@ -394,15 +481,21 @@ class DatabaseStore {
     for (const [key, entry] of Array.from(this.otpEntries.entries())) {
       if (entry.expiresAt < now) this.otpEntries.delete(key);
     }
-    this.enqueue(async () => {
-      await postgresPool.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
-    });
+    if (postgresPool) {
+      this.enqueue(async () => {
+        await postgresPool!.query("DELETE FROM otp_store WHERE expires_at < $1", [now]);
+      });
+    }
   }
 
   public reset(): DatabaseSchema {
     this.data = createInitialSeedData();
     const snapshot = clone(this.data);
-    this.enqueue(() => this.persistState(snapshot));
+    if (postgresPool) {
+      this.enqueue(() => pgPersistState(snapshot, this.passwordHashes));
+    } else {
+      this.enqueue(async () => writeJsonFile(snapshot));
+    }
     return this.data;
   }
 }
@@ -562,24 +655,27 @@ export const profileHelpers = {
     });
     return this.findByUserId(profile.userId)!;
   },
-  update(userId: string, updates: Partial<{
-    name: string;
-    branch: string;
-    year: string;
-    technicalSkills: string[];
-    nonTechnicalSkills: string[];
-    domains: string[];
-    githubUrl: string;
-    linkedinUrl: string;
-    portfolioUrl: string;
-    profilePhotoUrl: string;
-    previousCompetitions: string[];
-    projects: Array<{ title: string; description: string; link?: string }>;
-    achievements: string[];
-    certificates: string[];
-    lookingForTeam: boolean;
-    facePresenceVerified: boolean;
-  }>) {
+  update(
+    userId: string,
+    updates: Partial<{
+      name: string;
+      branch: string;
+      year: string;
+      technicalSkills: string[];
+      nonTechnicalSkills: string[];
+      domains: string[];
+      githubUrl: string;
+      linkedinUrl: string;
+      portfolioUrl: string;
+      profilePhotoUrl: string;
+      previousCompetitions: string[];
+      projects: Array<{ title: string; description: string; link?: string }>;
+      achievements: string[];
+      certificates: string[];
+      lookingForTeam: boolean;
+      facePresenceVerified: boolean;
+    }>
+  ) {
     db.update((draft) => {
       const profile = draft.profiles.find((candidate) => candidate.userId === userId);
       if (profile) Object.assign(profile, updates, { updatedAt: new Date().toISOString() });
@@ -600,5 +696,5 @@ export const preferenceHelpers = {
   },
 };
 
-// Expired verification tokens are periodically removed from PostgreSQL.
+// Expired OTPs are periodically removed
 setInterval(() => otpHelpers.purgeExpired(), 5 * 60 * 1000);

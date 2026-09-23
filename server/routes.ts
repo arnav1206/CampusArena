@@ -22,8 +22,8 @@ export const apiRouter = Router();
 // initial schema setup and data restore.
 apiRouter.use((_req: Request, res: Response, next) => {
   void db.ready.then(() => next()).catch((error) => {
-    console.error("[DB] PostgreSQL is unavailable:", error);
-    res.status(503).json({ success: false, error: "The database is unavailable. Please try again shortly." });
+    console.error("[DB] Storage layer is unavailable:", error);
+    res.status(503).json({ success: false, error: "The data store is unavailable. Please try again shortly." });
   });
 });
 
@@ -660,3 +660,165 @@ apiRouter.get("/admin/audit-logs", (req: Request, res: Response) => {
   });
   res.json({ logs });
 });
+
+// User payments
+apiRouter.get("/users/:userId/payments", (req: Request, res: Response) => {
+  const payments = db.get().payments.filter((p) => p.payerUserId === req.params.userId);
+  res.json({ payments });
+});
+
+// Team invitations
+apiRouter.get("/users/:userId/invitations", (req: Request, res: Response) => {
+  const invitations = db.get().notifications
+    .filter((n) => n.userId === req.params.userId && n.category === "team_activity" && !n.isRead)
+    .slice(0, 20);
+  res.json({ invitations });
+});
+
+// Competition stats (organizer overview)
+apiRouter.get("/competitions/:id/stats", (req: Request, res: Response) => {
+  const competitionId = req.params.id;
+  const data = db.get();
+  const teams = data.teams.filter((t) => t.competitionId === competitionId);
+  const members = data.teamMembers.filter((m) => teams.some((t) => t.id === m.teamId));
+  const submissions = data.submissions.filter((s) => s.competitionId === competitionId);
+  const payments = data.payments.filter((p) => p.competitionId === competitionId);
+  const checkpoints = data.attendanceCheckpoints.filter((c) => c.competitionId === competitionId);
+  const records = data.attendanceRecords.filter((r) => r.competitionId === competitionId);
+  res.json({
+    totalTeams: teams.length,
+    registeredTeams: teams.filter((t) => t.status === "registered").length,
+    pendingVerification: teams.filter((t) => t.status === "awaiting_verification").length,
+    paymentPending: teams.filter((t) => t.status === "payment_pending").length,
+    incompleteTeams: teams.filter((t) => t.status === "incomplete").length,
+    totalParticipants: members.length,
+    verifiedMembers: members.filter((m) => m.isVerified).length,
+    totalSubmissions: submissions.length,
+    payments: payments.length,
+    successfulPayments: payments.filter((p) => p.status === "successful").length,
+    checkInCount: records.length,
+    checkpoints: checkpoints.length,
+  });
+});
+
+// Competition participants (organizer view)
+apiRouter.get("/competitions/:id/participants", (req: Request, res: Response) => {
+  const competitionId = req.params.id;
+  const data = db.get();
+  const teams = data.teams.filter((t) => t.competitionId === competitionId);
+  const members = data.teamMembers.filter((m) => teams.some((t) => t.id === m.teamId));
+  const participants = members.map((m) => {
+    const user = data.users.find((u) => u.id === m.userId);
+    const team = teams.find((t) => t.id === m.teamId);
+    const profile = data.profiles.find((p) => p.userId === m.userId);
+    return { member: m, user, team, profile };
+  });
+  res.json({ participants });
+});
+
+// Competition audit logs (organizer view)
+apiRouter.get("/competitions/:id/audit-logs", (req: Request, res: Response) => {
+  const logs = db.get().auditLogs
+    .filter((l) => l.competitionId === req.params.id)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, Number(req.query.limit) || 100);
+  res.json({ logs });
+});
+
+// Raise a dispute
+apiRouter.post("/disputes", (req: Request, res: Response) => {
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!sessionUser) return res.status(401).json({ success: false, error: "Authentication required." });
+  const { competitionId, teamId, type, description } = req.body;
+  if (!type || !description) return res.status(400).json({ success: false, error: "Type and description are required." });
+  const id = `dispute_${Date.now()}`;
+  const dispute = {
+    id, competitionId, teamId, raisedByUserId: sessionUser.id,
+    raisedByName: sessionUser.name, type, description,
+    evidenceUrls: req.body.evidenceUrls || [],
+    status: "open" as const, createdAt: new Date().toISOString(),
+  };
+  db.update((draft) => { draft.disputes.push(dispute); });
+  res.json({ success: true, dispute });
+});
+
+// User disputes
+apiRouter.get("/users/:userId/disputes", (req: Request, res: Response) => {
+  const disputes = db.get().disputes.filter((d) => d.raisedByUserId === req.params.userId);
+  res.json({ disputes });
+});
+
+// Waitlist management
+apiRouter.get("/competitions/:id/waitlist", (req: Request, res: Response) => {
+  const waitlist = db.get().waitlist
+    .filter((w) => w.competitionId === req.params.id)
+    .sort((a, b) => a.position - b.position);
+  res.json({ waitlist });
+});
+
+apiRouter.post("/waitlist/:id/admit", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  db.update((draft) => {
+    const entry = draft.waitlist.find((w) => w.id === req.params.id);
+    if (entry) entry.status = "admitted_manually";
+  });
+  res.json({ success: true });
+});
+
+// POST /api/teams alias (RegisterModal uses this path)
+apiRouter.post("/teams", (req: Request, res: Response) => {
+  const result = TeamService.createTeam(req.body);
+  if (!result.success) return res.status(400).json(result);
+  res.json(result);
+});
+
+// PUT /api/competitions/:id — update competition draft
+apiRouter.put("/competitions/:id", (req: Request, res: Response) => {
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!sessionUser) return res.status(401).json({ success: false, error: "Authentication required." });
+  try {
+    const saved = CompetitionService.createOrUpdateDraft(sessionUser.id, { id: req.params.id, ...req.body });
+    res.json({ success: true, competition: saved });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Organizer memberships for a competition
+apiRouter.get("/competitions/:id/organizers", (req: Request, res: Response) => {
+  const memberships = db.get().organizerMemberships.filter((m) => m.competitionId === req.params.id);
+  const enriched = memberships.map((m) => {
+    const user = db.get().users.find((u) => u.id === m.userId);
+    return { ...m, user };
+  });
+  res.json({ organizers: enriched });
+});
+
+apiRouter.post("/competitions/:id/organizers", (req: Request, res: Response) => {
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (!sessionUser) return res.status(401).json({ success: false, error: "Authentication required." });
+  const { userId, role, permissions } = req.body;
+  const id = `om_${Date.now()}`;
+  const membership = { id, competitionId: req.params.id, userId, role, permissions: permissions || [], addedAt: new Date().toISOString() };
+  db.update((draft) => { draft.organizerMemberships.push(membership); });
+  res.json({ success: true, membership });
+});
+
+// Admin: list all competitions
+apiRouter.get("/admin/competitions", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ competitions: db.get().competitions });
+});
+
+// Admin: list all users
+apiRouter.get("/admin/users", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ users: db.get().users });
+});
+
+// Admin: list all payments
+apiRouter.get("/admin/payments", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ payments: db.get().payments });
+});
+

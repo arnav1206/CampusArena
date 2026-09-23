@@ -848,6 +848,105 @@
   ],
   "notifications": [
     {
+      "id": "notif_1790189653347_10_u_1789448871665",
+      "userId": "u_1789448871665",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_9_u_1789447085625",
+      "userId": "u_1789447085625",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_8_u_admin",
+      "userId": "u_admin",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_7_u_judge",
+      "userId": "u_judge",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_6_u_faculty",
+      "userId": "u_faculty",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_5_u_organizer",
+      "userId": "u_organizer",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_4_u_dev",
+      "userId": "u_dev",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_3_u_nisha",
+      "userId": "u_nisha",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_2_u_mira",
+      "userId": "u_mira",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_1_u_riya",
+      "userId": "u_riya",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
+      "id": "notif_1790189653347_0_u_aarav",
+      "userId": "u_aarav",
+      "category": "announcements",
+      "title": "Test Notification",
+      "message": "Notifications are now working!",
+      "isRead": false,
+      "createdAt": "2026-09-23T18:54:13.346Z"
+    },
+    {
       "id": "notif_1",
       "userId": "u_aarav",
       "competitionId": "comp_bharat",
@@ -933,6 +1032,16 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "aud_1790189653347",
+      "actorUserId": "u_admin",
+      "actorName": "Platform Admin",
+      "action": "PLATFORM_NOTICE_BROADCAST",
+      "entityType": "PlatformNotification",
+      "entityId": "notice_1790189653347",
+      "details": "Broadcast \"Test Notification\" to 11 all users.",
+      "timestamp": "2026-09-23T18:54:13.346Z"
+    },
     {
       "id": "aud_1",
       "competitionId": "comp_bharat",

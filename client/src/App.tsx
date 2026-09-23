@@ -16,6 +16,7 @@ import FormBuilder from "./pages/FormBuilder";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import ProfilePage from "./pages/ProfilePage";
+import CreateCompetition from "./pages/CreateCompetition";
 
 /** Map of location -> background for transitions */
 function usePageTransition() {
@@ -93,6 +94,7 @@ function Router() {
           <Switch>
             <Route path="/login" component={Login} />
             <Route path="/profile" component={ProfilePage} />
+            <Route path="/create-competition" component={CreateCompetition} />
             <Route path="/" component={Home} />
             <Route component={Home} />
           </Switch>

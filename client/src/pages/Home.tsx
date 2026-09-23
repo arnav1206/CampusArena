@@ -72,7 +72,7 @@ import type { Competition, Team, Round } from "@shared/types";
 /* ── types ──────────────────────────────────────────────────────────────── */
 type Workspace = "student" | "organizer";
 type StudentView = "home" | "competitions" | "teams" | "payments" | "certificates";
-type OrganizerView = "overview" | "setup" | "teams" | "submissions" | "attendance" | "team";
+type OrganizerView = "overview" | "setup" | "teams" | "submissions" | "attendance" | "team" | "participants" | "payments" | "rounds" | "judging" | "certificates" | "announcements" | "audit-logs";
 
 const studentViewPaths: Record<StudentView, string> = {
   home: "/student/home",
@@ -89,6 +89,13 @@ const organizerViewPaths: Record<OrganizerView, string> = {
   submissions: "/organizer/submissions",
   attendance: "/organizer/attendance",
   team: "/organizer/team",
+  participants: "/organizer/participants",
+  payments: "/organizer/payments",
+  rounds: "/organizer/rounds",
+  judging: "/organizer/judging",
+  certificates: "/organizer/certificates",
+  announcements: "/organizer/announcements",
+  "audit-logs": "/organizer/audit-logs",
 };
 
 function getWorkspaceRoute(path: string): { workspace: Workspace; view: StudentView | OrganizerView } | null {
@@ -259,6 +266,13 @@ const organizerNav = [
   { id: "teams" as OrganizerView, label: "Teams & requests", icon: Users },
   { id: "submissions" as OrganizerView, label: "Submissions", icon: FileCheck2 },
   { id: "attendance" as OrganizerView, label: "Attendance", icon: QrCode },
+  { id: "participants" as OrganizerView, label: "Participants", icon: Users },
+  { id: "payments" as OrganizerView, label: "Payments", icon: CreditCard },
+  { id: "rounds" as OrganizerView, label: "Rounds", icon: ListChecks },
+  { id: "judging" as OrganizerView, label: "Judging", icon: Gauge },
+  { id: "certificates" as OrganizerView, label: "Certificates", icon: Award },
+  { id: "announcements" as OrganizerView, label: "Announcements", icon: Bell },
+  { id: "audit-logs" as OrganizerView, label: "Audit logs", icon: ShieldCheck },
 ];
 
 /* ── TopBar ─────────────────────────────────────────────────────────────── */
@@ -709,7 +723,8 @@ function TeamsView({
   onOpenPayment: (team: any) => void;
   onOpenSubmission: (team: any) => void;
 }) {
-  const { user } = useAuth();
+  const { user, profile, refreshUserData, notifications, markNotificationRead } = useAuth();
+  const teamInvites = notifications.filter((n) => n.category === "team_activity" && !n.isRead);
 
   // PIN verification modal state
   const [pinInput, setPinInput] = useState("");
@@ -720,10 +735,10 @@ function TeamsView({
     if (!pinInput || !pinTeamId || !user) return;
     setPinLoading(true);
     try {
-      const res = await fetch("/api/teams/verify-pin", {
+      const res = await fetch(`/api/teams/${pinTeamId}/verify-pin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId: pinTeamId, userId: user.id, pin: pinInput }),
+        body: JSON.stringify({ userId: user.id, pin: pinInput }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "PIN error");
@@ -734,6 +749,23 @@ function TeamsView({
       toast.error(e.message ?? "Invalid PIN.");
     } finally {
       setPinLoading(false);
+    }
+  }
+
+  async function toggleLookingForTeam() {
+    if (!user || !profile) return;
+    try {
+      const isLooking = !profile.lookingForTeam;
+      const res = await fetch("/api/profile/looking-for-team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, isLooking }),
+      });
+      if (!res.ok) throw new Error("Failed to update matching preference.");
+      toast.success(isLooking ? "You are now visible to teams." : "You are no longer visible to teams.");
+      await refreshUserData();
+    } catch (e: any) {
+      toast.error(e.message);
     }
   }
 
@@ -808,6 +840,21 @@ function TeamsView({
                   {myTeam.status === "payment_pending" && (
                     <Button variant="lime" onClick={() => onOpenPayment(myTeam)}>Pay now <CreditCard size={15} /></Button>
                   )}
+                  {myTeam.status === "ready_to_complete" && myTeam.leaderId === user?.id && (
+                    <Button variant="lime" onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/teams/${myTeam.id}/finalize`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ leaderId: user?.id, declarationsAccepted: true })
+                        });
+                        if (!res.ok) throw new Error("Failed to finalize team");
+                        toast.success("Team finalized successfully!");
+                      } catch (e: any) {
+                        toast.error(e.message);
+                      }
+                    }}>Finalize team <Check size={15} /></Button>
+                  )}
                 </div>
               </div>
             </Surface>
@@ -817,27 +864,49 @@ function TeamsView({
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2"><Handshake size={16} className="text-[#4c83c1]" /><h2 className="font-display text-lg font-extrabold tracking-[-0.04em] text-[#202a20] dark:text-[#e8efe3]">Team invitations</h2></div>
-                <p className="mt-1 text-xs text-[#90968d] dark:text-[#9cb09c]">One invite needs your response.</p>
+                <p className="mt-1 text-xs text-[#90968d] dark:text-[#9cb09c]">{teamInvites.length} invite{teamInvites.length !== 1 && "s"} need{teamInvites.length === 1 && "s"} your response.</p>
               </div>
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-[#fff0ef] text-[10px] font-extrabold text-[#bd5b5c] dark:bg-[#341618] dark:text-[#ff999b]">1</span>
+              {teamInvites.length > 0 && <span className="grid h-6 w-6 place-items-center rounded-full bg-[#fff0ef] text-[10px] font-extrabold text-[#bd5b5c] dark:bg-[#341618] dark:text-[#ff999b]">{teamInvites.length}</span>}
             </div>
-            <div className="mt-5 rounded-xl border border-[#e8e9e2] bg-[#fafbf8] p-4 dark:border-[#273528] dark:bg-[#141f15]">
-              <div className="flex items-start gap-3">
-                <Avatar initials="NS" tone="bg-[#f6ddc3] text-[#9c5f28]" />
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-[#344035] dark:text-[#e8efe3]">Nisha sent an invite</div>
-                  <div className="mt-1 text-[11px] leading-5 text-[#899187] dark:text-[#9cb09c]">Join <span className="font-bold text-[#596b4e] dark:text-[#b8f34a]">Greenroom</span> for Design / Decode</div>
-                  <div className="mt-3 flex gap-2">
-                    <Button variant="dark" className="px-3 py-2 text-xs" onClick={() => toast("Invite accepted. Team leader confirmation is pending.")}>Accept</Button>
-                    <button onClick={() => toast("Invite declined.")} className="rounded-lg px-3 py-2 text-xs font-bold text-[#989e94] hover:bg-[#eeefe9] dark:text-[#9cb09c] dark:hover:bg-[#202d21]">Decline</button>
+            
+            {teamInvites.length > 0 ? teamInvites.map((invite) => (
+              <div key={invite.id} className="mt-5 rounded-xl border border-[#e8e9e2] bg-[#fafbf8] p-4 dark:border-[#273528] dark:bg-[#141f15]">
+                <div className="flex items-start gap-3">
+                  <Avatar initials="TM" tone="bg-[#f6ddc3] text-[#9c5f28]" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-[#344035] dark:text-[#e8efe3]">{invite.title}</div>
+                    <div className="mt-1 text-[11px] leading-5 text-[#899187] dark:text-[#9cb09c]">{invite.message}</div>
+                    <div className="mt-3 flex gap-2">
+                      <Button variant="dark" className="px-3 py-2 text-xs" onClick={async () => {
+                        try {
+                          await markNotificationRead(invite.id);
+                          toast.success("Invite accepted. Team leader confirmation is pending.");
+                        } catch(e) {
+                          toast.error("Error accepting invite");
+                        }
+                      }}>Accept</Button>
+                      <button onClick={async () => {
+                        try {
+                          await markNotificationRead(invite.id);
+                          toast.success("Invite declined.");
+                        } catch(e) {
+                          toast.error("Error declining invite");
+                        }
+                      }} className="rounded-lg px-3 py-2 text-xs font-bold text-[#989e94] hover:bg-[#eeefe9] dark:text-[#9cb09c] dark:hover:bg-[#202d21]">Decline</button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )) : (
+              <div className="mt-5 text-xs text-[#90968d] dark:text-[#9cb09c]">No pending invitations.</div>
+            )}
+            
             <div className="mt-5 border-t border-[#eeeee8] pt-4 dark:border-[#273528]">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-[#677067] dark:text-[#d0ded0]">Looking for a team</span>
-                <button onClick={() => toast("Team matching preference updated.")} className="relative h-6 w-11 rounded-full bg-[#b8f34a]"><span className="absolute right-1 top-1 h-4 w-4 rounded-full bg-[#172017] shadow-sm" /></button>
+                <button onClick={toggleLookingForTeam} className={cn("relative h-6 w-11 rounded-full transition-colors", profile?.lookingForTeam ? "bg-[#b8f34a]" : "bg-[#e2e5df] dark:bg-[#253426]")}>
+                  <span className={cn("absolute top-1 h-4 w-4 rounded-full shadow-sm transition-all", profile?.lookingForTeam ? "right-1 bg-[#172017]" : "left-1 bg-white dark:bg-[#9cb09c]")} />
+                </button>
               </div>
               <div className="mt-2 text-[11px] leading-5 text-[#969c93] dark:text-[#9cb09c]">Your profile is visible to relevant teams while this is on.</div>
             </div>
@@ -1429,6 +1498,458 @@ function TeamDetail({ close }: { close: () => void }) {
   );
 }
 
+
+function OrganizerParticipantsView() {
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/participants")
+      .then((res) => res.json())
+      .then((data) => {
+        setParticipants(data.participants || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const filtered = participants.filter((p) => p.name?.toLowerCase().includes(search.toLowerCase()) || p.rollNumber?.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Users size={13} /> Directory</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Participants.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Manage all registered participants for this competition.</p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard label="Total Participants" value={participants.length.toString()} meta="Registered users" icon={Users} tone="lime" />
+        <StatCard label="Verified" value={participants.filter(p => p.verificationStatus === "verified").length.toString()} meta="Ready to compete" icon={ShieldCheck} tone="blue" />
+      </div>
+      <Surface className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[#eeeee8] p-5 sm:px-6 dark:border-[#273528]">
+          <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Participant List</h2>
+          <div className="relative">
+             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8c9089]" />
+             <input type="text" placeholder="Search by name..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full rounded-xl border border-[#e0dfd8] bg-white py-2 pl-9 pr-4 text-xs focus:border-[#b8f34a] focus:outline-none dark:border-[#2a382a] dark:bg-[#18221a] dark:text-[#e8efe3]" />
+          </div>
+        </div>
+        {loading ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">Loading participants...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">No participants found.</div>
+        ) : (
+          <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+            {filtered.map((p) => (
+              <div key={p.id} className="flex items-center justify-between p-5 sm:px-6 hover:bg-[#fbfcf8] dark:hover:bg-[#182418]">
+                <div>
+                  <div className="text-sm font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{p.name || "Unknown"}</div>
+                  <div className="mt-1 text-xs text-[#a1a69f] dark:text-[#7d8f7d]">{p.rollNumber || "No Roll No."} · Team: {p.teamName || "None"}</div>
+                </div>
+                <div className="flex gap-2">
+                  <StatusPill tone={p.teamStatus === "verified" ? "lime" : "amber"}>{p.teamStatus || "pending"}</StatusPill>
+                  <StatusPill tone={p.verificationStatus === "verified" ? "lime" : "slate"}>{p.verificationStatus || "unverified"}</StatusPill>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Surface>
+    </div>
+  );
+}
+
+function OrganizerPaymentsView() {
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/payments")
+      .then((res) => res.json())
+      .then((data) => {
+        setPayments(data.payments || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const totalRevenue = payments.filter(p => p.status === "completed").reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><CreditCard size={13} /> Finance</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Payments.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Track registration fees and issue waivers.</p>
+        </div>
+        <Button variant="lime" onClick={() => toast("Waiver form opened.")}><ReceiptText size={15} /> Issue waiver</Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard label="Total Revenue" value={`₹${totalRevenue}`} meta="From completed payments" icon={CreditCard} tone="lime" />
+      </div>
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[#eeeee8] p-5 sm:px-6 dark:border-[#273528]">
+          <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Payment History</h2>
+        </div>
+        {loading ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">Loading payments...</div>
+        ) : payments.length === 0 ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">No payments recorded.</div>
+        ) : (
+          <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+            {payments.map((p) => (
+              <div key={p.id} className="flex items-center justify-between p-5 sm:px-6 hover:bg-[#fbfcf8] dark:hover:bg-[#182418]">
+                <div>
+                  <div className="text-sm font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{p.teamName || "Unknown Team"}</div>
+                  <div className="mt-1 text-xs text-[#a1a69f] dark:text-[#7d8f7d]">ID: {p.transactionId || "N/A"} · {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : "Pending"}</div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="font-bold text-[#202a20] dark:text-[#e8efe3]">₹{p.amount || 0}</div>
+                  <StatusPill tone={p.status === "completed" ? "lime" : p.status === "pending" ? "amber" : "rose"}>{p.status || "pending"}</StatusPill>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Surface>
+    </div>
+  );
+}
+
+function OrganizerRoundsView() {
+  const [rounds, setRounds] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/rounds")
+      .then((res) => res.json())
+      .then((data) => {
+        setRounds(data.rounds || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleExtend = (id: string) => {
+    fetch(`/api/rounds/${id}/extend-deadline`, { method: "POST" })
+      .then(() => toast("Deadline extended."))
+      .catch(() => toast.error("Failed to extend deadline."));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><ListChecks size={13} /> Pipeline</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Rounds.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Manage competition stages and deadlines.</p>
+        </div>
+      </div>
+      {loading ? (
+        <div className="p-6 text-center text-sm text-[#92998f]">Loading rounds...</div>
+      ) : rounds.length === 0 ? (
+        <div className="p-6 text-center text-sm text-[#92998f]">No rounds configured.</div>
+      ) : (
+        <div className="grid gap-4">
+          {rounds.map((round) => (
+            <Surface key={round.id} className="p-5 sm:p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">{round.name}</h2>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-[#92998f] dark:text-[#9cb09c]">
+                    <span>{new Date(round.startDate).toLocaleDateString()} - {new Date(round.endDate).toLocaleDateString()}</span>
+                    <span className="h-1 w-1 rounded-full bg-[#d0ded0]" />
+                    <span>Mode: {round.advancementMode || "manual"}</span>
+                  </div>
+                </div>
+                <StatusPill tone={round.status === "active" ? "lime" : "slate"}>{round.status || "draft"}</StatusPill>
+              </div>
+              <div className="mt-4 flex items-center justify-between border-t border-[#eeeee8] pt-4 dark:border-[#273528]">
+                <div className="text-xs text-[#a1a69f] dark:text-[#7d8f7d]">Deadline: {round.submissionDeadline ? new Date(round.submissionDeadline).toLocaleString() : "None"}</div>
+                <Button variant="outline" onClick={() => handleExtend(round.id)}><Clock3 size={14} /> Extend deadline</Button>
+              </div>
+            </Surface>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrganizerJudgingView() {
+  const [rounds, setRounds] = useState<any[]>([]);
+  const [criteria, setCriteria] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/rounds")
+      .then((res) => res.json())
+      .then(async (data) => {
+        const r = data.rounds || [];
+        setRounds(r);
+        const crit: Record<string, any[]> = {};
+        for (const round of r) {
+          try {
+            const res = await fetch(`/api/rounds/${round.id}/criteria`);
+            const d = await res.json();
+            crit[round.id] = d.criteria || [];
+          } catch (e) {}
+        }
+        setCriteria(crit);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Gauge size={13} /> Evaluation</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Judging.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Review scoring criteria and manage judge assignments.</p>
+        </div>
+        <Button variant="lime" onClick={() => toast("Add judge form opened.")}><Plus size={15} /> Add judge</Button>
+      </div>
+      {loading ? (
+        <div className="p-6 text-center text-sm text-[#92998f]">Loading judging data...</div>
+      ) : rounds.length === 0 ? (
+        <div className="p-6 text-center text-sm text-[#92998f]">No rounds available.</div>
+      ) : (
+        <div className="space-y-6">
+          {rounds.map((round) => (
+            <Surface key={round.id} className="overflow-hidden">
+              <div className="flex items-center justify-between border-b border-[#eeeee8] p-5 sm:px-6 dark:border-[#273528]">
+                <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">{round.name}</h2>
+                <div className="text-xs text-[#92998f] dark:text-[#9cb09c]">{criteria[round.id]?.length || 0} Criteria</div>
+              </div>
+              <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+                {criteria[round.id]?.length > 0 ? criteria[round.id].map((c: any) => (
+                  <div key={c.id} className="flex items-center justify-between p-5 sm:px-6">
+                    <div>
+                      <div className="text-sm font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{c.name}</div>
+                      <div className="mt-1 text-xs text-[#a1a69f] dark:text-[#7d8f7d]">{c.description || "No description"}</div>
+                    </div>
+                    <div className="font-bold text-[#719d2a] dark:text-[#b8f34a]">{c.weight}% Weight</div>
+                  </div>
+                )) : (
+                  <div className="p-5 text-center text-sm text-[#92998f]">No criteria defined for this round.</div>
+                )}
+              </div>
+            </Surface>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrganizerCertificatesView() {
+  const [certificates, setCertificates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/certificates")
+      .then((res) => res.json())
+      .then((data) => {
+        setCertificates(data.certificates || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleIssue = () => {
+    fetch("/api/certificates/issue", { method: "POST", body: JSON.stringify({ competitionId: "comp_bharat" }), headers: { "Content-Type": "application/json" } })
+      .then(() => toast("Certificates issued successfully."))
+      .catch(() => toast.error("Failed to issue certificates."));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Award size={13} /> Recognition</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Certificates.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Issue credentials to eligible participants.</p>
+        </div>
+        <Button variant="lime" onClick={handleIssue}><Award size={15} /> Issue certificates</Button>
+      </div>
+      <Surface className="overflow-hidden">
+        <div className="border-b border-[#eeeee8] p-5 sm:px-6 dark:border-[#273528]">
+          <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Certificate Types</h2>
+        </div>
+        {loading ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">Loading certificates...</div>
+        ) : certificates.length === 0 ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">No certificates configured.</div>
+        ) : (
+          <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+            {certificates.map((c) => (
+              <div key={c.id} className="flex items-center justify-between p-5 sm:px-6">
+                <div>
+                  <div className="text-sm font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{c.type}</div>
+                  <div className="mt-1 text-xs text-[#a1a69f] dark:text-[#7d8f7d]">Template: {c.templateUrl || "Default"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Surface>
+    </div>
+  );
+}
+
+function OrganizerAnnouncementsView() {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState("all");
+  const [whatsapp, setWhatsapp] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/announcements")
+      .then((res) => res.json())
+      .then((data) => {
+        setAnnouncements(data.announcements || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleBroadcast = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetch("/api/competitions/comp_bharat/announcements/broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, message, targetGroups: [target], channels: whatsapp ? ["email", "in_app", "whatsapp"] : ["email", "in_app"] })
+    }).then(() => {
+      toast.success("Announcement broadcasted.");
+      setTitle(""); setMessage("");
+    }).catch(() => toast.error("Failed to broadcast."));
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_.8fr]">
+      <div className="space-y-6">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Bell size={13} /> Communication</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Announcements.</h1>
+        </div>
+        <Surface className="overflow-hidden">
+          <div className="border-b border-[#eeeee8] p-5 sm:px-6 dark:border-[#273528]">
+            <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">History</h2>
+          </div>
+          {loading ? (
+            <div className="p-6 text-center text-sm text-[#92998f]">Loading...</div>
+          ) : announcements.length === 0 ? (
+            <div className="p-6 text-center text-sm text-[#92998f]">No announcements sent yet.</div>
+          ) : (
+            <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+              {announcements.map((a) => (
+                <div key={a.id} className="p-5 sm:px-6">
+                  <div className="font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{a.title}</div>
+                  <div className="mt-2 text-xs text-[#667166] dark:text-[#9cb09c]">{a.content}</div>
+                  <div className="mt-3 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Sent by {a.senderId || "Admin"} · {new Date(a.createdAt).toLocaleString()} · Target: {a.targetGroups?.join(", ")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Surface>
+      </div>
+      <div>
+        <Surface className="p-5 sm:p-6 sticky top-24">
+          <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Compose</h2>
+          <form onSubmit={handleBroadcast} className="mt-5 space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-[#5c635b] dark:text-[#9cb09c]">Title</label>
+              <input required value={title} onChange={e => setTitle(e.target.value)} type="text" className="w-full rounded-xl border border-[#e0dfd8] bg-white px-3 py-2 text-sm focus:border-[#b8f34a] focus:outline-none dark:border-[#2a382a] dark:bg-[#18221a] dark:text-[#e8efe3]" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-[#5c635b] dark:text-[#9cb09c]">Message</label>
+              <textarea required value={message} onChange={e => setMessage(e.target.value)} rows={4} className="w-full rounded-xl border border-[#e0dfd8] bg-white px-3 py-2 text-sm focus:border-[#b8f34a] focus:outline-none dark:border-[#2a382a] dark:bg-[#18221a] dark:text-[#e8efe3]" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-[#5c635b] dark:text-[#9cb09c]">Target</label>
+              <select value={target} onChange={e => setTarget(e.target.value)} className="w-full rounded-xl border border-[#e0dfd8] bg-white px-3 py-2 text-sm focus:border-[#b8f34a] focus:outline-none dark:border-[#2a382a] dark:bg-[#18221a] dark:text-[#e8efe3]">
+                <option value="all">All participants</option>
+                <option value="track">Specific track</option>
+                <option value="team">Specific team</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="whatsapp" checked={whatsapp} onChange={e => setWhatsapp(e.target.checked)} className="h-4 w-4 rounded border-[#e0dfd8] text-[#b8f34a] focus:ring-[#b8f34a]" />
+              <label htmlFor="whatsapp" className="text-xs font-semibold text-[#5c635b] dark:text-[#9cb09c]">Send via WhatsApp</label>
+            </div>
+            <Button variant="lime" type="submit" className="w-full">Broadcast Announcement <Bell size={14} /></Button>
+          </form>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+function OrganizerAuditLogsView() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterType, setFilterType] = useState("all");
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/audit-logs")
+      .then((res) => res.json())
+      .then((data) => {
+        setLogs(data.logs || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const filtered = filterType === "all" ? logs : logs.filter(l => l.action === filterType);
+  const types = Array.from(new Set(logs.map(l => l.action)));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><ShieldCheck size={13} /> Security</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Audit Logs.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Track all system actions and modifications.</p>
+        </div>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button onClick={() => setFilterType("all")} className={cn("whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-bold transition", filterType === "all" ? "border-[#172017] bg-[#172017] text-white dark:border-[#b8f34a] dark:bg-[#b8f34a] dark:text-[#101610]" : "border-[#deded8] bg-white text-[#757c73] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]")}>All</button>
+        {types.map(t => (
+          <button key={t as string} onClick={() => setFilterType(t as string)} className={cn("whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-bold transition", filterType === t ? "border-[#172017] bg-[#172017] text-white dark:border-[#b8f34a] dark:bg-[#b8f34a] dark:text-[#101610]" : "border-[#deded8] bg-white text-[#757c73] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]")}>{t as string}</button>
+        ))}
+      </div>
+      <Surface className="overflow-hidden">
+        {loading ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">Loading audit logs...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-center text-sm text-[#92998f]">No logs found.</div>
+        ) : (
+          <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+            {filtered.map((log) => (
+              <div key={log.id} className="p-4 sm:px-6">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{log.action} <span className="font-normal text-[#a1a69f]">· {log.entityType}</span></div>
+                  <div className="text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">{new Date(log.timestamp).toLocaleString()}</div>
+                </div>
+                <div className="mt-1 text-xs text-[#667166] dark:text-[#9cb09c]">Actor: {log.actorId}</div>
+                <div className="mt-1 text-[10px] font-mono text-[#a1a69f] dark:text-[#7d8f7d] bg-[#fbfcf8] p-2 rounded dark:bg-[#131d14]">{JSON.stringify(log.details)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Surface>
+    </div>
+  );
+}
+
 /* ── Main Home export ────────────────────────────────────────────────────── */
 export default function Home() {
   const { user, notifications, unreadCount } = useAuth();
@@ -1551,6 +2072,13 @@ export default function Home() {
               ? <OrganizerSubmissionsView />
               : organizerView === "attendance"
                 ? <AttendanceView onOpenQRScanner={() => toast("QR scanner ready. Camera access would open here.")} />
+                : organizerView === "participants" ? <OrganizerParticipantsView />
+                : organizerView === "payments" ? <OrganizerPaymentsView />
+                : organizerView === "rounds" ? <OrganizerRoundsView />
+                : organizerView === "judging" ? <OrganizerJudgingView />
+                : organizerView === "certificates" ? <OrganizerCertificatesView />
+                : organizerView === "announcements" ? <OrganizerAnnouncementsView />
+                : organizerView === "audit-logs" ? <OrganizerAuditLogsView />
                 : <TeamDetail close={() => setOrganizerView("teams")} />);
 
   return (
