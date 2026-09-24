@@ -545,6 +545,53 @@ function ProgressRing({ value }: { value: number }) {
   );
 }
 
+function AnnouncementsWidget() {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/announcements")
+      .then((res) => res.json())
+      .then((data) => {
+        setAnnouncements(data.announcements || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading || announcements.length === 0) return null;
+
+  return (
+    <Surface className="p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell size={16} className="text-[#719d2a] dark:text-[#b8f34a]" />
+          <h2 className="font-display text-lg font-extrabold tracking-[-0.04em] text-[#202a20] dark:text-[#e8efe3]">Announcements & Broadcasts</h2>
+        </div>
+        <span className="rounded-full bg-[#f0f9db] px-2.5 py-0.5 text-[10px] font-extrabold text-[#5f8427] dark:bg-[#20301c] dark:text-[#c6e58d]">
+          {announcements.length} live
+        </span>
+      </div>
+      <div className="mt-3.5 space-y-3">
+        {announcements.slice(0, 4).map((a) => (
+          <div key={a.id} className="rounded-xl border border-[#e4e8df] bg-[#fbfdf7] p-3.5 dark:border-[#2a382b] dark:bg-[#152117]">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#719d2a] dark:text-[#b8f34a]">
+                📢 {a.senderName || "Organizer Notice"}
+              </span>
+              <span className="text-[10px] text-[#90968d] dark:text-[#7d8f7d]">
+                {new Date(a.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+              </span>
+            </div>
+            <h4 className="mt-1 text-xs font-bold text-[#202a20] dark:text-[#e8efe3]">{a.title}</h4>
+            <p className="mt-1 text-xs leading-5 text-[#677366] dark:text-[#9cb09c]">{a.message || a.content}</p>
+          </div>
+        ))}
+      </div>
+    </Surface>
+  );
+}
+
 /* ── StudentHome ─────────────────────────────────────────────────────────── */
 function StudentHome({
   setActive,
@@ -615,6 +662,7 @@ function StudentHome({
         </Surface>
 
         <div className="space-y-6">
+          <AnnouncementsWidget />
           <Surface className="p-5">
             <div className="flex items-start justify-between">
               <div>

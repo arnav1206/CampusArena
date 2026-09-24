@@ -52,7 +52,10 @@ export class NotificationService {
     db.update((draft) => {
       const targetRole = params.targetRole || "all";
       const recipients = draft.users.filter(
-        (user) => targetRole === "all" || user.role === targetRole
+        (user) =>
+          targetRole === "all" ||
+          user.role === targetRole ||
+          (targetRole === "student" && (user.role === "student" || user.role === "user" || !user.role))
       );
       recipientCount = recipients.length;
       recipients.forEach((recipient, index) => draft.notifications.unshift({
@@ -71,7 +74,7 @@ export class NotificationService {
         action: "PLATFORM_NOTICE_BROADCAST",
         entityType: "PlatformNotification",
         entityId: `notice_${Date.now()}`,
-        details: `Broadcast \"${title}\" to ${recipientCount} ${params.targetRole || "all"} users.`,
+        details: `Broadcast "${title}" to ${recipientCount} ${params.targetRole || "all"} users.`,
         timestamp: now,
       });
     });
@@ -135,7 +138,11 @@ export class NotificationService {
         const members = draft.teamMembers.filter((m) =>
           compTeams.some((t) => t.id === m.teamId)
         );
-        targetUserIds = Array.from(new Set(members.map((m) => m.userId)));
+        const memberUserIds = members.map((m) => m.userId);
+        const studentUserIds = draft.users
+          .filter((u) => u.role === "student" || u.role === "user" || !u.role)
+          .map((u) => u.id);
+        targetUserIds = Array.from(new Set([...memberUserIds, ...studentUserIds]));
       } else if (targetType === "team" && targetId) {
         const members = draft.teamMembers.filter((m) => m.teamId === targetId);
         targetUserIds = members.map((m) => m.userId);

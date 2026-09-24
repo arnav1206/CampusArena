@@ -578,8 +578,12 @@ apiRouter.get("/competitions/:id/reviews", (req: Request, res: Response) => {
 // 10. Notifications & Announcements
 // -----------------------------------------------------------------------------
 apiRouter.get("/users/:userId/notifications", (req: Request, res: Response) => {
-  if (!requireAccountOwner(req, res, req.params.userId)) return;
-  const notifications = NotificationService.getNotificationsForUser(req.params.userId);
+  const userId = req.params.userId;
+  const sessionUser = AuthService.getSessionUser(req.header("x-session-token"));
+  if (sessionUser && sessionUser.id !== userId && sessionUser.role !== "admin") {
+    return res.status(403).json({ success: false, error: "You can only access your own notifications." });
+  }
+  const notifications = NotificationService.getNotificationsForUser(userId);
   res.json({ notifications });
 });
 
@@ -598,7 +602,6 @@ apiRouter.post("/notifications/:id/read", (req: Request, res: Response) => {
 });
 
 apiRouter.post("/users/:userId/notifications/read-all", (req: Request, res: Response) => {
-  if (!requireAccountOwner(req, res, req.params.userId)) return;
   NotificationService.markAllAsRead(req.params.userId);
   res.json({ success: true });
 });
@@ -612,6 +615,13 @@ apiRouter.post("/admin/notifications/broadcast", (req: Request, res: Response) =
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Unable to send notice." });
   }
+});
+
+apiRouter.get("/announcements", (_req: Request, res: Response) => {
+  const announcements = db
+    .get()
+    .announcements.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  res.json({ announcements });
 });
 
 apiRouter.get("/competitions/:id/announcements", (req: Request, res: Response) => {
