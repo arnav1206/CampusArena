@@ -595,8 +595,74 @@ export default function Login() {
                       Enter your arena.
                     </h2>
                     <p className="mt-1 text-xs text-[#8a9a88] dark:text-[#9aaa98]">
-                      First sign-in uses an OTP. After that, choose an OTP or your password.
+                      First sign-in uses an OTP. Use code <strong>123456</strong> or click any demo role below.
                     </p>
+                  </div>
+
+                  {/* Quick 1-Click Demo Logins */}
+                  <div className="rounded-2xl border border-[#d8e6c0] bg-[#f4fbdf] p-3.5 dark:border-[#385223] dark:bg-[#1c2a18]">
+                    <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-[#4d701e] dark:text-[#b8f34a]">
+                      <span>⚡ Quick 1-Click Demo Login</span>
+                      <span className="text-[10px] opacity-75">Fallback Code: 123456</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setLoginId("aarav@campus.edu");
+                          setLoginLoading(true);
+                          const res = await loginWithOtp("aarav@campus.edu", "123456");
+                          setLoginLoading(false);
+                          if (res.success) setLocation("/");
+                          else toast.error(res.error || "Login failed");
+                        }}
+                        className="rounded-xl border border-[#cfe69f] bg-white px-2 py-1.5 text-center text-xs font-bold text-[#2d401e] shadow-xs hover:bg-[#eaf4d3] dark:border-[#3d5a28] dark:bg-[#131d13] dark:text-[#d3ef9e]"
+                      >
+                        🎓 Student
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setLoginId("organizer@campus.edu");
+                          setLoginLoading(true);
+                          const res = await loginWithOtp("organizer@campus.edu", "123456");
+                          setLoginLoading(false);
+                          if (res.success) setLocation("/");
+                          else toast.error(res.error || "Login failed");
+                        }}
+                        className="rounded-xl border border-[#cfe69f] bg-white px-2 py-1.5 text-center text-xs font-bold text-[#2d401e] shadow-xs hover:bg-[#eaf4d3] dark:border-[#3d5a28] dark:bg-[#131d13] dark:text-[#d3ef9e]"
+                      >
+                        🏆 Organizer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setLoginId("judge@campus.edu");
+                          setLoginLoading(true);
+                          const res = await loginWithOtp("judge@campus.edu", "123456");
+                          setLoginLoading(false);
+                          if (res.success) setLocation("/");
+                          else toast.error(res.error || "Login failed");
+                        }}
+                        className="rounded-xl border border-[#cfe69f] bg-[#fff] px-2 py-1.5 text-center text-xs font-bold text-[#2d401e] shadow-xs hover:bg-[#eaf4d3] dark:border-[#3d5a28] dark:bg-[#131d13] dark:text-[#d3ef9e]"
+                      >
+                        ⚖️ Judge
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setLoginId("admin@campus.edu");
+                          setLoginLoading(true);
+                          const res = await loginWithOtp("admin@campus.edu", "123456");
+                          setLoginLoading(false);
+                          if (res.success) setLocation("/admin");
+                          else toast.error(res.error || "Login failed");
+                        }}
+                        className="rounded-xl border border-[#cfe69f] bg-white px-2 py-1.5 text-center text-xs font-bold text-[#2d401e] shadow-xs hover:bg-[#eaf4d3] dark:border-[#3d5a28] dark:bg-[#131d13] dark:text-[#d3ef9e]"
+                      >
+                        🛡️ Admin
+                      </button>
+                    </div>
                   </div>
 
                   {passwordSetupToken ? (
