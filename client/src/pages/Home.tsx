@@ -1804,6 +1804,7 @@ function OrganizerCertificatesView() {
 }
 
 function OrganizerAnnouncementsView() {
+  const { user } = useAuth();
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
@@ -1811,7 +1812,7 @@ function OrganizerAnnouncementsView() {
   const [target, setTarget] = useState("all");
   const [whatsapp, setWhatsapp] = useState(false);
 
-  useEffect(() => {
+  const fetchAnnouncements = () => {
     fetch("/api/competitions/comp_bharat/announcements")
       .then((res) => res.json())
       .then((data) => {
@@ -1819,18 +1820,36 @@ function OrganizerAnnouncementsView() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAnnouncements();
   }, []);
 
   const handleBroadcast = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!title.trim() || !message.trim()) {
+      toast.error("Please enter both title and message.");
+      return;
+    }
     fetch("/api/competitions/comp_bharat/announcements/broadcast", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, message, targetGroups: [target], channels: whatsapp ? ["email", "in_app", "whatsapp"] : ["email", "in_app"] })
-    }).then(() => {
-      toast.success("Announcement broadcasted.");
+      body: JSON.stringify({
+        senderUserId: user?.id || "u_organizer",
+        title,
+        message,
+        targetType: target,
+        targetGroups: [target],
+        sendWhatsApp: whatsapp,
+        channels: whatsapp ? ["email", "in_app", "whatsapp"] : ["email", "in_app"]
+      })
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Broadcast failed");
+      toast.success("Announcement broadcasted successfully.");
       setTitle(""); setMessage("");
-    }).catch(() => toast.error("Failed to broadcast."));
+      fetchAnnouncements();
+    }).catch(() => toast.error("Failed to broadcast announcement."));
   };
 
   return (
@@ -1853,8 +1872,8 @@ function OrganizerAnnouncementsView() {
               {announcements.map((a) => (
                 <div key={a.id} className="p-5 sm:px-6">
                   <div className="font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{a.title}</div>
-                  <div className="mt-2 text-xs text-[#667166] dark:text-[#9cb09c]">{a.content}</div>
-                  <div className="mt-3 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Sent by {a.senderId || "Admin"} · {new Date(a.createdAt).toLocaleString()} · Target: {a.targetGroups?.join(", ")}</div>
+                  <div className="mt-2 text-xs text-[#667166] dark:text-[#9cb09c]">{a.message || a.content}</div>
+                  <div className="mt-3 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Sent by {a.senderName || a.senderId || "Organizer"} · {new Date(a.createdAt).toLocaleString()} · Target: {a.targetType || a.targetGroups?.join(", ") || "All"} {a.sendWhatsApp ? "· WhatsApp Sent" : ""}</div>
                 </div>
               ))}
             </div>

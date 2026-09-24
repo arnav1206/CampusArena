@@ -90,14 +90,22 @@ export class NotificationService {
    */
   static broadcastAnnouncement(params: {
     competitionId: string;
-    senderUserId: string;
-    targetType: Announcement["targetType"];
+    senderUserId?: string;
+    targetType?: Announcement["targetType"];
+    targetGroups?: string[];
     targetId?: string;
     title: string;
     message: string;
-    sendWhatsApp: boolean;
+    sendWhatsApp?: boolean;
+    channels?: string[];
   }): Announcement {
-    const { competitionId, senderUserId, targetType, targetId, title, message, sendWhatsApp } = params;
+    const competitionId = params.competitionId;
+    const senderUserId = params.senderUserId || "u_organizer";
+    const targetType: Announcement["targetType"] = params.targetType || (params.targetGroups?.[0] as Announcement["targetType"]) || "all";
+    const targetId = params.targetId;
+    const title = params.title || "";
+    const message = params.message || "";
+    const sendWhatsApp = params.sendWhatsApp ?? (params.channels?.includes("whatsapp") || false);
     const state = db.get();
     const sender = state.users.find((u) => u.id === senderUserId);
 

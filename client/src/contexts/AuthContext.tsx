@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Restore settings for this account after every login/session restore.
         // localStorage remains only a short initial-display fallback.
-        const savedPreferences = await apiGetUserPreferences(userData.user.id);
+        const savedPreferences = await apiGetUserPreferences(userData.user.id).catch(() => ({ preferences: undefined }));
         if (savedPreferences.preferences?.theme === "light" || savedPreferences.preferences?.theme === "dark") {
           setTheme?.(savedPreferences.preferences.theme);
         }
@@ -122,9 +122,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Load notifications
         await loadNotifications(userData.user.id).catch(() => undefined);
+      } else {
+        localStorage.removeItem("ca_user_id");
+        localStorage.removeItem("ca_session_token");
+        setUser(null);
+        setProfile(null);
       }
     } catch (err) {
       console.error("[AUTH] Error loading user data:", err);
+      localStorage.removeItem("ca_user_id");
+      localStorage.removeItem("ca_session_token");
+      setUser(null);
+      setProfile(null);
     } finally {
       setLoading(false);
     }
@@ -134,18 +143,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true);
       const data = await apiVerifyOtp(identifier, code);
-      setLoading(false);
       if (data.success && data.user) {
-        if (data.passwordSetupRequired && data.passwordSetupToken) {
-          return { success: true, passwordSetupRequired: true, passwordSetupToken: data.passwordSetupToken };
-        }
         if (data.sessionToken) localStorage.setItem("ca_session_token", data.sessionToken);
         setUser(data.user);
         localStorage.setItem("ca_user_id", data.user.id);
         await loadUser(data.user.id);
         toast.success(`Welcome back, ${data.user.name}!`);
-        return { success: true };
+        return {
+          success: true,
+          passwordSetupRequired: data.passwordSetupRequired,
+          passwordSetupToken: data.passwordSetupToken,
+        };
       }
+      setLoading(false);
       return { success: false, error: data.error || "Authentication failed" };
     } catch (err: any) {
       setLoading(false);

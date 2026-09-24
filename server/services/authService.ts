@@ -312,16 +312,18 @@ export class AuthService {
     if (cleanId === PLATFORM_ADMIN_EMAIL && authenticatedUser.role !== "admin") {
       authenticatedUser = userHelpers.updateRole(authenticatedUser.id, "admin") as User;
     }
+    const sessionToken = createToken(authenticatedUser.id, "session");
     const existing = userHelpers.findForPasswordLogin(authenticatedUser.email);
     if (!existing?.passwordHash) {
       return {
         success: true,
         user: authenticatedUser,
+        sessionToken,
         passwordSetupRequired: true,
         passwordSetupToken: createToken(authenticatedUser.id, "password-setup"),
       };
     }
-    return { success: true, user: authenticatedUser, sessionToken: createToken(authenticatedUser.id, "session") };
+    return { success: true, user: authenticatedUser, sessionToken };
   }
 
   static completePasswordSetup(params: { passwordSetupToken?: string; password: string }): { success: boolean; user?: User; sessionToken?: string; error?: string } {
