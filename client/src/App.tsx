@@ -34,8 +34,6 @@ function usePageTransition() {
 
 function Router() {
   const { user, loading } = useAuth();
-  const [location] = useLocation();
-  const transitions = usePageTransition();
 
   // Full-screen loading state
   if (loading) {
@@ -56,51 +54,31 @@ function Router() {
 
   // No user → show Login for all routes
   if (!user) {
-    return (
-      <div className="relative overflow-hidden">
-        {transitions((style, loc) => (
-          <animated.div style={style} key={loc}>
-            <Login />
-          </animated.div>
-        ))}
-      </div>
-    );
+    return <Login />;
   }
 
   // Admin → AdminPortal
   if (user.role === "admin") {
     return (
-      <div className="relative overflow-hidden">
-        {transitions((style, loc) => (
-          <animated.div style={style} key={loc}>
-            <Switch>
-              <Route path="/profile" component={ProfilePage} />
-              <Route path="/admin/forms" component={FormBuilder} />
-              <Route path="/admin/notifications" component={AdminNotifications} />
-              <Route path="/admin" component={AdminPortal} />
-              <Route component={AdminPortal} />
-            </Switch>
-          </animated.div>
-        ))}
-      </div>
+      <Switch>
+        <Route path="/profile" component={ProfilePage} />
+        <Route path="/admin/forms" component={FormBuilder} />
+        <Route path="/admin/notifications" component={AdminNotifications} />
+        <Route path="/admin" component={AdminPortal} />
+        <Route component={AdminPortal} />
+      </Switch>
     );
   }
 
   // All other authenticated users
   return (
-    <div className="relative overflow-hidden">
-      {transitions((style, loc) => (
-        <animated.div style={style} key={loc}>
-          <Switch>
-            <Route path="/login" component={Login} />
-            <Route path="/profile" component={ProfilePage} />
-            <Route path="/create-competition" component={CreateCompetition} />
-            <Route path="/" component={Home} />
-            <Route component={Home} />
-          </Switch>
-        </animated.div>
-      ))}
-    </div>
+    <Switch>
+      <Route path="/login" component={Login} />
+      <Route path="/profile" component={ProfilePage} />
+      <Route path="/create-competition" component={CreateCompetition} />
+      <Route path="/" component={Home} />
+      <Route component={Home} />
+    </Switch>
   );
 }
 
