@@ -63,6 +63,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLoading(false);
     }
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "ca_user_id") {
+        if (e.newValue) {
+          loadUser(e.newValue);
+        } else {
+          setUser(null);
+          setProfile(null);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // Theme is a user preference, not just a browser preference. Wait until the

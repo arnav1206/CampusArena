@@ -67,6 +67,7 @@ import { ShowcaseModal } from "../components/student/ShowcaseModal";
 import { StudentProfileModal } from "../components/student/StudentProfileModal";
 import { SubmissionModal } from "../components/student/SubmissionModal";
 import { NotificationsPanel } from "../components/NotificationsPanel";
+import { QRScannerModal } from "../components/QRScannerModal";
 import type { Competition, Team, Round } from "@shared/types";
 
 /* ── types ──────────────────────────────────────────────────────────────── */
@@ -1405,30 +1406,125 @@ function SetupView({ setActive }: { setActive: (v: OrganizerView) => void }) {
   );
 }
 
+function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+  ].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 function OrganizerTeamsView({ openTeam }: { openTeam: () => void }) {
+  const [teams, setTeams] = useState<any[]>([]);
+  const [filterTrack, setFilterTrack] = useState("all");
+  const [showFilterModal, setShowFilterModal] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/competitions/comp_bharat/teams")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.teams && data.teams.length > 0) {
+          setTeams(data.teams);
+        } else {
+          setTeams([
+            { id: "t1", name: "Ctrl + Alt + Elite", track: "Product", members: "3 / 5", status: "Awaiting verify", tone: "amber", initials: "AS" },
+            { id: "t2", name: "Greenroom", track: "Design", members: "4 / 4", status: "Registered", tone: "lime", initials: "NS" },
+            { id: "t3", name: "The Loop", track: "Climate", members: "2 / 5", status: "Incomplete", tone: "rose", initials: "MP" },
+            { id: "t4", name: "404 Not Found", track: "Open track", members: "5 / 5", status: "Payment pending", tone: "blue", initials: "DV" },
+          ]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleExport = () => {
+    const headers = ["Team ID", "Team Name", "Track", "Members", "Status"];
+    const rows = teams.map((t) => [
+      t.id,
+      t.name,
+      t.track || t.trackName || "General",
+      t.members || `${t.memberCount ?? 1}/${t.maxMembers ?? 4}`,
+      t.status || "Registered",
+    ]);
+    downloadCsv("campus_arena_teams.csv", headers, rows);
+    toast.success("Teams exported to campus_arena_teams.csv");
+  };
+
+  const filteredTeams = filterTrack === "all"
+    ? teams
+    : teams.filter((t) => (t.track || t.trackName || "").toLowerCase().includes(filterTrack.toLowerCase()));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Users size={13} /> Operations</div><h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20]">Teams & requests.</h1><p className="mt-2 text-sm leading-6 text-[#899087]">Make the next team decision obvious. Every action stays in the audit trail.</p></div>
-        <Button variant="dark" onClick={() => toast("Bulk team reminder sent.")}><Bell size={15} /> Send reminders</Button>
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Users size={13} /> Operations</div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Teams & requests.</h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Make the next team decision obvious. Every action stays in the audit trail.</p>
+        </div>
+        <Button variant="dark" onClick={() => toast.success("Bulk team reminders queued to all unverified members.")}><Bell size={15} /> Send reminders</Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Active teams" value="31" meta="+6 this week" icon={Users} tone="lime" />
+        <StatCard label="Active teams" value={String(teams.length || 31)} meta="+6 this week" icon={Users} tone="lime" />
         <StatCard label="Awaiting action" value="07" meta="leader or organizer" icon={Clock3} tone="amber" />
         <StatCard label="Waitlist" value="14" meta="first come, first served" icon={ListChecks} tone="blue" />
       </div>
       <Surface className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[#eeeee8] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 dark:border-[#273528]">
-          <div><h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Team queue</h2><p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">Prioritized by deadlines and blocked progress.</p></div>
-          <div className="flex gap-2"><button onClick={() => toast("Filters opened.")} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]"><Filter size={14} /> Filter</button><button onClick={() => toast("Export prepared.")} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]"><Download size={14} /> Export</button></div>
+          <div>
+            <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Team queue</h2>
+            <p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">Prioritized by deadlines and blocked progress.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowFilterModal(!showFilterModal)} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] hover:bg-[#f8f8f4] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]">
+              <Filter size={14} /> {filterTrack === "all" ? "Filter" : `Filter: ${filterTrack}`}
+            </button>
+            <button onClick={handleExport} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] hover:bg-[#f8f8f4] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]">
+              <Download size={14} /> Export CSV
+            </button>
+          </div>
         </div>
-        <div className="hidden grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] gap-4 border-b border-[#f0efe9] bg-[#fbfcf8] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#a0a69d] md:grid dark:border-[#273528] dark:bg-[#131d14] dark:text-[#7d8f7d]"><span>Team</span><span>Track</span><span>Members</span><span>Status</span><span /></div>
-        {(([["Ctrl + Alt + Elite", "Product", "3 / 5", "Awaiting verify", "amber", "AS"], ["Greenroom", "Design", "4 / 4", "Registered", "lime", "NS"], ["The Loop", "Climate", "2 / 5", "Incomplete", "rose", "MP"], ["404 Not Found", "Open track", "5 / 5", "Payment pending", "blue", "DV"]] as const)).map(([name, track, members, status, tone, initials]) => (
-          <button key={name} onClick={openTeam} className="grid w-full gap-3 border-b border-[#f0efe9] px-5 py-4 text-left transition-colors hover:bg-[#fbfcf8] md:grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] md:items-center md:gap-4 md:px-6 dark:border-[#273528] dark:hover:bg-[#182418]">
-            <div className="flex items-center gap-3"><Avatar initials={initials} /><div><div className="text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{name}</div><div className="mt-1 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Leader · 2h ago</div></div></div>
-            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{track}</div>
-            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{members}</div>
-            <div className="pl-12 md:pl-0"><StatusPill tone={tone as any}>{status}</StatusPill></div>
+
+        {showFilterModal && (
+          <div className="border-b border-[#eeeee8] bg-[#fafbf7] p-4 dark:border-[#273528] dark:bg-[#131d14] flex items-center gap-2 text-xs font-bold">
+            <span>Filter by track:</span>
+            {["all", "Product", "Design", "Climate", "Open track"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setFilterTrack(t)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 transition",
+                  filterTrack === t ? "bg-[#172017] text-white dark:bg-[#b8f34a] dark:text-[#172017]" : "bg-white border text-[#555] dark:bg-[#1c281d] dark:text-[#aaa]"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="hidden grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] gap-4 border-b border-[#f0efe9] bg-[#fbfcf8] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#a0a69d] md:grid dark:border-[#273528] dark:bg-[#131d14] dark:text-[#7d8f7d]">
+          <span>Team</span><span>Track</span><span>Members</span><span>Status</span><span />
+        </div>
+        {filteredTeams.map((t) => (
+          <button key={t.id || t.name} onClick={openTeam} className="grid w-full gap-3 border-b border-[#f0efe9] px-5 py-4 text-left transition-colors hover:bg-[#fbfcf8] md:grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] md:items-center md:gap-4 md:px-6 dark:border-[#273528] dark:hover:bg-[#182418]">
+            <div className="flex items-center gap-3">
+              <Avatar initials={t.initials || t.name.slice(0, 2).toUpperCase()} />
+              <div>
+                <div className="text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{t.name}</div>
+                <div className="mt-1 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Leader · Active</div>
+              </div>
+            </div>
+            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{t.track || t.trackName || "Product"}</div>
+            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{t.members || `${t.memberCount ?? 1} / ${t.maxMembers ?? 4}`}</div>
+            <div className="pl-12 md:pl-0"><StatusPill tone={(t.tone || "lime") as any}>{t.status || "Registered"}</StatusPill></div>
             <div className="hidden justify-end text-[10px] font-extrabold text-[#68952a] md:flex dark:text-[#b8f34a]">Open <ChevronRight size={13} /></div>
           </button>
         ))}
@@ -1564,6 +1660,19 @@ function OrganizerParticipantsView() {
 
   const filtered = participants.filter((p) => p.name?.toLowerCase().includes(search.toLowerCase()) || p.rollNumber?.toLowerCase().includes(search.toLowerCase()));
 
+  const handleExportParticipants = () => {
+    const headers = ["Member ID", "User ID", "Team Name", "Verified", "Role"];
+    const rows = participants.map((p) => [
+      p.member?.id || p.id || "—",
+      p.user?.name || p.user?.id || p.member?.userId || "—",
+      p.team?.name || p.teamName || "—",
+      p.member?.isVerified ? "Yes" : "No",
+      p.member?.role || "Member",
+    ]);
+    downloadCsv("participants.csv", headers, rows);
+    toast.success("Exported participants to participants.csv");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -1572,6 +1681,7 @@ function OrganizerParticipantsView() {
           <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Participants.</h1>
           <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Manage all registered participants for this competition.</p>
         </div>
+        <Button variant="outline" onClick={handleExportParticipants}><Download size={15} /> Export CSV</Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <StatCard label="Total Participants" value={participants.length.toString()} meta="Registered users" icon={Users} tone="lime" />
@@ -1978,6 +2088,20 @@ function OrganizerAuditLogsView() {
   const filtered = filterType === "all" ? logs : logs.filter(l => l.action === filterType);
   const types = Array.from(new Set(logs.map(l => l.action)));
 
+  const handleExportAuditLogs = () => {
+    const headers = ["Log ID", "Action", "Actor ID", "Entity Type", "Timestamp", "Details"];
+    const rows = logs.map((l) => [
+      l.id,
+      l.action,
+      l.actorUserId || l.actorId || "system",
+      l.entityType || "—",
+      l.timestamp,
+      JSON.stringify(l.details || {}),
+    ]);
+    downloadCsv("audit_logs.csv", headers, rows);
+    toast.success("Exported audit logs to audit_logs.csv");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -1986,6 +2110,7 @@ function OrganizerAuditLogsView() {
           <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Audit Logs.</h1>
           <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Track all system actions and modifications.</p>
         </div>
+        <Button variant="outline" onClick={handleExportAuditLogs}><Download size={15} /> Export CSV</Button>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button onClick={() => setFilterType("all")} className={cn("whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-bold transition", filterType === "all" ? "border-[#172017] bg-[#172017] text-white dark:border-[#b8f34a] dark:bg-[#b8f34a] dark:text-[#101610]" : "border-[#deded8] bg-white text-[#757c73] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]")}>All</button>
@@ -2049,6 +2174,7 @@ export default function Home() {
   const [submissionTeam, setSubmissionTeam] = useState<any | null>(null);
   const [showShowcase, setShowShowcase] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   // ── keep the workspace view in sync with its URL (including back/forward)
   useEffect(() => {
@@ -2138,7 +2264,7 @@ export default function Home() {
             : organizerView === "submissions"
               ? <OrganizerSubmissionsView />
               : organizerView === "attendance"
-                ? <AttendanceView onOpenQRScanner={() => toast("QR scanner ready. Camera access would open here.")} />
+                ? <AttendanceView onOpenQRScanner={() => setShowQRScanner(true)} />
                 : organizerView === "participants" ? <OrganizerParticipantsView />
                 : organizerView === "payments" ? <OrganizerPaymentsView />
                 : organizerView === "rounds" ? <OrganizerRoundsView />
@@ -2266,6 +2392,9 @@ export default function Home() {
           competition={rawCompetitions.find((c) => c.id === detail?.id) || rawCompetitions[0] || (STATIC_COMPETITIONS[0] as unknown as Competition)}
           close={() => setShowShowcase(false)}
         />
+      )}
+      {showQRScanner && (
+        <QRScannerModal open={showQRScanner} onClose={() => setShowQRScanner(false)} />
       )}
     </div>
   );

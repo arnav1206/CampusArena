@@ -143,7 +143,34 @@ export default function CreateCompetition() {
     }
   };
 
+  const validateCurrentStep = (): boolean => {
+    if (currentStep === 0) {
+      if (!basicInfo.title.trim()) {
+        toast.error("Please enter a competition title before proceeding.");
+        return false;
+      }
+    }
+    if (currentStep === 1) {
+      if (schedule.startDate && schedule.endDate && new Date(schedule.endDate) < new Date(schedule.startDate)) {
+        toast.error("Competition End Date cannot be earlier than Start Date.");
+        return false;
+      }
+      if (schedule.registrationDeadline && schedule.startDate && new Date(schedule.registrationDeadline) > new Date(schedule.startDate)) {
+        toast.error("Registration Deadline must be on or before the Start Date.");
+        return false;
+      }
+    }
+    if (currentStep === 3) {
+      if (teamRules.minTeamSize > teamRules.maxTeamSize) {
+        toast.error("Minimum team size cannot be greater than Maximum team size.");
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleNext = () => {
+    if (!validateCurrentStep()) return;
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(s => s + 1);
     }
