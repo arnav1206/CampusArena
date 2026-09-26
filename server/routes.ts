@@ -285,8 +285,26 @@ apiRouter.post("/competitions/:id/cancel", (req: Request, res: Response) => {
 // 4. Teams & Verification PINs
 // -----------------------------------------------------------------------------
 apiRouter.get("/competitions/:id/teams", (req: Request, res: Response) => {
-  const teams = TeamService.getTeamsByCompetition(req.params.id);
-  res.json({ teams });
+  const competitionId = req.params.id;
+  const state = db.get();
+  const teams = state.teams.filter((t) => t.competitionId === competitionId || req.params.id === "all");
+  const enriched = teams.map((team) => {
+    const track = state.tracks.find((tr) => tr.id === team.trackId);
+    const members = state.teamMembers.filter((m) => m.teamId === team.id);
+    const leader = members.find((m) => m.role === "leader");
+    const leaderUser = state.users.find((u) => u.id === (leader?.userId || team.leaderId));
+    return {
+      ...team,
+      trackName: track?.name || "Product Track",
+      memberCount: members.length,
+      leaderName: leaderUser?.name || "Team Leader",
+      members: members.map((m) => {
+        const u = state.users.find((usr) => usr.id === m.userId);
+        return { ...m, name: u?.name || "Member", email: u?.email || "" };
+      }),
+    };
+  });
+  res.json({ teams: enriched });
 });
 
 apiRouter.get("/teams/:id", (req: Request, res: Response) => {

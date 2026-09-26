@@ -1485,9 +1485,13 @@ function downloadCsv(filename: string, headers: string[], rows: (string | number
 function OrganizerTeamsView({ openTeam }: { openTeam: () => void }) {
   const [teams, setTeams] = useState<any[]>([]);
   const [filterTrack, setFilterTrack] = useState("all");
-  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTeamModal, setSelectedTeamModal] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     fetch("/api/competitions/comp_bharat/teams")
       .then((res) => res.json())
       .then((data) => {
@@ -1495,101 +1499,271 @@ function OrganizerTeamsView({ openTeam }: { openTeam: () => void }) {
           setTeams(data.teams);
         } else {
           setTeams([
-            { id: "t1", name: "Ctrl + Alt + Elite", track: "Product", members: "3 / 5", status: "Awaiting verify", tone: "amber", initials: "AS" },
-            { id: "t2", name: "Greenroom", track: "Design", members: "4 / 4", status: "Registered", tone: "lime", initials: "NS" },
-            { id: "t3", name: "The Loop", track: "Climate", members: "2 / 5", status: "Incomplete", tone: "rose", initials: "MP" },
-            { id: "t4", name: "404 Not Found", track: "Open track", members: "5 / 5", status: "Payment pending", tone: "blue", initials: "DV" },
+            { id: "t1", name: "Ctrl + Alt + Elite", code: "CA-8492", trackName: "Product Track", leaderName: "Aarav Shah", memberCount: 3, maxMembers: 5, status: "awaiting_verification", tone: "amber", initials: "AS" },
+            { id: "t2", name: "Greenroom", code: "CA-1029", trackName: "Design Track", leaderName: "Nisha Sharma", memberCount: 4, maxMembers: 4, status: "registered", tone: "lime", initials: "NS" },
+            { id: "t3", name: "The Loop", code: "CA-3341", trackName: "Climate Track", leaderName: "Mira Bose", memberCount: 2, maxMembers: 5, status: "incomplete", tone: "rose", initials: "MB" },
+            { id: "t4", name: "404 Not Found", code: "CA-9920", trackName: "Open Track", leaderName: "Dev Patel", memberCount: 5, maxMembers: 5, status: "payment_pending", tone: "blue", initials: "DV" },
           ]);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const handleExport = () => {
-    const headers = ["Team ID", "Team Name", "Track", "Members", "Status"];
-    const rows = teams.map((t) => [
-      t.id,
+    const headers = ["Team Code", "Team Name", "Track", "Leader", "Members", "Status"];
+    const rows = filteredTeams.map((t) => [
+      t.code || t.id,
       t.name,
-      t.track || t.trackName || "General",
-      t.members || `${t.memberCount ?? 1}/${t.maxMembers ?? 4}`,
+      t.trackName || t.track || "General",
+      t.leaderName || "Leader",
+      `${t.memberCount ?? 1}/${t.maxSize ?? t.maxMembers ?? 4}`,
       t.status || "Registered",
     ]);
-    downloadCsv("campus_arena_teams.csv", headers, rows);
-    toast.success("Teams exported to campus_arena_teams.csv");
+    downloadCsv("campus_arena_all_teams.csv", headers, rows);
+    toast.success("All competition teams exported to campus_arena_all_teams.csv");
   };
 
-  const filteredTeams = filterTrack === "all"
-    ? teams
-    : teams.filter((t) => (t.track || t.trackName || "").toLowerCase().includes(filterTrack.toLowerCase()));
+  const filteredTeams = teams.filter((t) => {
+    const trackMatch =
+      filterTrack === "all" ||
+      (t.trackName || t.track || "").toLowerCase().includes(filterTrack.toLowerCase());
+
+    const statusMatch =
+      filterStatus === "all" ||
+      (t.status || "").toLowerCase().replace(/_/g, " ").includes(filterStatus.toLowerCase().replace(/_/g, " "));
+
+    const q = searchQuery.toLowerCase();
+    const searchMatch =
+      !q ||
+      t.name?.toLowerCase().includes(q) ||
+      t.code?.toLowerCase().includes(q) ||
+      t.leaderName?.toLowerCase().includes(q) ||
+      t.trackName?.toLowerCase().includes(q);
+
+    return trackMatch && statusMatch && searchMatch;
+  });
+
+  const tracksCategories = ["all", "Product", "Design", "Climate", "Open Track"];
+  const statusCategories = [
+    { id: "all", label: "All Statuses" },
+    { id: "registered", label: "Registered" },
+    { id: "awaiting_verification", label: "Awaiting Verification" },
+    { id: "payment_pending", label: "Payment Pending" },
+    { id: "incomplete", label: "Incomplete" },
+  ];
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Users size={13} /> Operations</div>
-          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Teams & requests.</h1>
-          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">Make the next team decision obvious. Every action stays in the audit trail.</p>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+            <Users size={13} /> Operations
+          </div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">
+            Teams & requests.
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">
+            Complete roster of all teams across tracks and statuses. Every action stays in the audit trail.
+          </p>
         </div>
-        <Button variant="dark" onClick={() => toast.success("Bulk team reminders queued to all unverified members.")}><Bell size={15} /> Send reminders</Button>
+        <Button variant="dark" onClick={() => toast.success("Bulk team reminders queued to all unverified members.")}>
+          <Bell size={15} /> Send reminders
+        </Button>
       </div>
+
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Active teams" value={String(teams.length || 31)} meta="+6 this week" icon={Users} tone="lime" />
-        <StatCard label="Awaiting action" value="07" meta="leader or organizer" icon={Clock3} tone="amber" />
-        <StatCard label="Waitlist" value="14" meta="first come, first served" icon={ListChecks} tone="blue" />
+        <StatCard label="Active teams" value={String(teams.length)} meta="Total registered teams" icon={Users} tone="lime" />
+        <StatCard label="Awaiting verification" value={String(teams.filter((t) => t.status === "awaiting_verification").length || 3)} meta="Leader or member verification" icon={Clock3} tone="amber" />
+        <StatCard label="Fully Registered" value={String(teams.filter((t) => t.status === "registered").length || 14)} meta="Ready for round evaluation" icon={ListChecks} tone="blue" />
       </div>
+
+      {/* Main Queue & Category Tabs */}
       <Surface className="overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-[#eeeee8] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 dark:border-[#273528]">
-          <div>
-            <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Team queue</h2>
-            <p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">Prioritized by deadlines and blocked progress.</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowFilterModal(!showFilterModal)} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] hover:bg-[#f8f8f4] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]">
-              <Filter size={14} /> {filterTrack === "all" ? "Filter" : `Filter: ${filterTrack}`}
-            </button>
-            <button onClick={handleExport} className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] hover:bg-[#f8f8f4] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]">
-              <Download size={14} /> Export CSV
-            </button>
-          </div>
-        </div>
-
-        {showFilterModal && (
-          <div className="border-b border-[#eeeee8] bg-[#fafbf7] p-4 dark:border-[#273528] dark:bg-[#131d14] flex items-center gap-2 text-xs font-bold">
-            <span>Filter by track:</span>
-            {["all", "Product", "Design", "Climate", "Open track"].map((t) => (
-              <button
-                key={t}
-                onClick={() => setFilterTrack(t)}
-                className={cn(
-                  "rounded-lg px-2.5 py-1 transition",
-                  filterTrack === t ? "bg-[#172017] text-white dark:bg-[#b8f34a] dark:text-[#172017]" : "bg-white border text-[#555] dark:bg-[#1c281d] dark:text-[#aaa]"
-                )}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="hidden grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] gap-4 border-b border-[#f0efe9] bg-[#fbfcf8] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#a0a69d] md:grid dark:border-[#273528] dark:bg-[#131d14] dark:text-[#7d8f7d]">
-          <span>Team</span><span>Track</span><span>Members</span><span>Status</span><span />
-        </div>
-        {filteredTeams.map((t) => (
-          <button key={t.id || t.name} onClick={openTeam} className="grid w-full gap-3 border-b border-[#f0efe9] px-5 py-4 text-left transition-colors hover:bg-[#fbfcf8] md:grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] md:items-center md:gap-4 md:px-6 dark:border-[#273528] dark:hover:bg-[#182418]">
-            <div className="flex items-center gap-3">
-              <Avatar initials={t.initials || t.name.slice(0, 2).toUpperCase()} />
-              <div>
-                <div className="text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{t.name}</div>
-                <div className="mt-1 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">Leader · Active</div>
-              </div>
+        <div className="flex flex-col gap-4 border-b border-[#eeeee8] p-5 sm:p-6 dark:border-[#273528]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">
+                Team Directory ({filteredTeams.length} of {teams.length})
+              </h2>
+              <p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">
+                Filter by track categories, verification status, or search team names.
+              </p>
             </div>
-            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{t.track || t.trackName || "Product"}</div>
-            <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">{t.members || `${t.memberCount ?? 1} / ${t.maxMembers ?? 4}`}</div>
-            <div className="pl-12 md:pl-0"><StatusPill tone={(t.tone || "lime") as any}>{t.status || "Registered"}</StatusPill></div>
-            <div className="hidden justify-end text-[10px] font-extrabold text-[#68952a] md:flex dark:text-[#b8f34a]">Open <ChevronRight size={13} /></div>
-          </button>
-        ))}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search team name, code, leader..."
+                className="rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-[#b8f34a] dark:border-[#273528] dark:bg-[#162018] dark:text-[#e8efe3]"
+              />
+              <button
+                onClick={handleExport}
+                className="inline-flex items-center gap-2 rounded-xl border border-[#deded8] bg-white px-3 py-2 text-xs font-bold text-[#697168] hover:bg-[#f8f8f4] dark:border-[#273528] dark:bg-[#162018] dark:text-[#9cb09c]"
+              >
+                <Download size={14} /> Export CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Track Category Tabs */}
+          <div className="space-y-2 pt-2">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#868f84] dark:text-[#9ba899]">
+              Filter Track Category
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {tracksCategories.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setFilterTrack(t)}
+                  className={cn(
+                    "rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all",
+                    filterTrack === t
+                      ? "bg-[#172017] text-white shadow-sm dark:bg-[#b8f34a] dark:text-[#172017]"
+                      : "border border-[#deded8] bg-white text-[#636c62] hover:bg-[#f5f6f1] dark:border-[#2a382c] dark:bg-[#162117] dark:text-[#a1b29f]"
+                  )}
+                >
+                  {t === "all" ? "All Tracks" : t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Status Category Tabs */}
+          <div className="space-y-2 pt-1 border-t border-[#f0efe9] dark:border-[#273528]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#868f84] dark:text-[#9ba899]">
+              Filter Status Category
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {statusCategories.map((st) => (
+                <button
+                  key={st.id}
+                  onClick={() => setFilterStatus(st.id)}
+                  className={cn(
+                    "rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all",
+                    filterStatus === st.id
+                      ? "bg-[#68952a] text-white shadow-sm dark:bg-[#273d23] dark:text-[#b8f34a]"
+                      : "border border-[#deded8] bg-white text-[#636c62] hover:bg-[#f5f6f1] dark:border-[#2a382c] dark:bg-[#162117] dark:text-[#a1b29f]"
+                  )}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Table Header */}
+        <div className="hidden grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] gap-4 border-b border-[#f0efe9] bg-[#fbfcf8] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#a0a69d] md:grid dark:border-[#273528] dark:bg-[#131d14] dark:text-[#7d8f7d]">
+          <span>Team / Leader</span>
+          <span>Track</span>
+          <span>Members</span>
+          <span>Status</span>
+          <span />
+        </div>
+
+        {loading ? (
+          <div className="py-12 text-center text-xs text-[#868e83]">Loading all competition teams...</div>
+        ) : filteredTeams.length === 0 ? (
+          <div className="py-12 text-center text-xs text-[#868e83]">No teams match your selected filters.</div>
+        ) : (
+          filteredTeams.map((t) => (
+            <button
+              key={t.id || t.name}
+              onClick={() => setSelectedTeamModal(t)}
+              className="grid w-full gap-3 border-b border-[#f0efe9] px-5 py-4 text-left transition-colors hover:bg-[#fbfcf8] md:grid-cols-[1.4fr_.7fr_.7fr_.75fr_100px] md:items-center md:gap-4 md:px-6 dark:border-[#273528] dark:hover:bg-[#182418]"
+            >
+              <div className="flex items-center gap-3">
+                <Avatar initials={t.initials || t.name.slice(0, 2).toUpperCase()} />
+                <div>
+                  <div className="text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">
+                    {t.name} <span className="font-mono text-[10px] text-[#719d2a]">({t.code || "CA-1000"})</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-[#a1a69f] dark:text-[#7d8f7d]">
+                    Leader: <strong>{t.leaderName || "Leader"}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">
+                {t.trackName || t.track || "Product Track"}
+              </div>
+              <div className="pl-12 text-[11px] font-semibold text-[#737d72] md:pl-0 dark:text-[#9cb09c]">
+                {t.memberCount ?? 1} / {t.maxSize ?? t.maxMembers ?? 4}
+              </div>
+              <div className="pl-12 md:pl-0">
+                <StatusPill tone={t.status === "registered" ? "lime" : t.status === "awaiting_verification" ? "amber" : t.status === "payment_pending" ? "blue" : "rose"}>
+                  {(t.status || "registered").replace(/_/g, " ")}
+                </StatusPill>
+              </div>
+              <div className="hidden justify-end text-[10px] font-extrabold text-[#68952a] md:flex dark:text-[#b8f34a]">
+                Open <ChevronRight size={13} />
+              </div>
+            </button>
+          ))
+        )}
       </Surface>
+
+      {/* Team Details Modal */}
+      {selectedTeamModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[#172017]/45 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-[560px] overflow-y-auto rounded-3xl border border-white/50 bg-[#fbfcf7] p-6 shadow-2xl dark:border-[#3c4c3d] dark:bg-[#172217]">
+            <div className="flex items-start justify-between border-b border-[#e9ece2] pb-4 dark:border-[#314033]">
+              <div>
+                <StatusPill tone={selectedTeamModal.status === "registered" ? "lime" : "amber"}>
+                  {(selectedTeamModal.status || "registered").replace(/_/g, " ")}
+                </StatusPill>
+                <h2 className="mt-2 font-display text-2xl font-extrabold text-[#263126] dark:text-[#eff7ec]">
+                  {selectedTeamModal.name} <span className="font-mono text-sm text-[#719d2a]">({selectedTeamModal.code})</span>
+                </h2>
+                <p className="mt-1 text-xs text-[#7d867c] dark:text-[#9cb09c]">
+                  Track: <strong>{selectedTeamModal.trackName || "General Track"}</strong> · Leader: <strong>{selectedTeamModal.leaderName}</strong>
+                </p>
+              </div>
+              <button onClick={() => setSelectedTeamModal(null)} className="rounded-lg p-2 text-[#929a91] hover:bg-[#eef0e9] dark:hover:bg-[#253427]">
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#818a7f] dark:text-[#99aa97]">
+                Team Members ({selectedTeamModal.memberCount || 1} / {selectedTeamModal.maxSize || 4})
+              </div>
+
+              {selectedTeamModal.members && selectedTeamModal.members.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedTeamModal.members.map((m: any, idx: number) => (
+                    <div key={m.id || idx} className="flex items-center justify-between rounded-xl border border-[#e2e7dc] bg-white p-3 text-xs dark:border-[#2f3f30] dark:bg-[#121c13]">
+                      <div>
+                        <div className="font-extrabold text-[#2e3b2d] dark:text-[#e0ece0]">
+                          {m.name} {m.role === "leader" && <span className="text-[10px] text-[#68952a] font-normal">(Leader)</span>}
+                        </div>
+                        <div className="text-[10px] text-[#869084]">{m.email}</div>
+                      </div>
+                      <StatusPill tone={m.isVerified ? "lime" : "amber"}>
+                        {m.isVerified ? "Verified PIN" : "Pending PIN"}
+                      </StatusPill>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-[#e2e7dc] bg-white p-4 text-xs text-[#7d867c]">
+                  Leader: <strong>{selectedTeamModal.leaderName}</strong> (Active)
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 border-t border-[#e9ece2] pt-4 text-right dark:border-[#314033]">
+              <button
+                onClick={() => setSelectedTeamModal(null)}
+                className="rounded-xl bg-[#172017] px-5 py-2 text-xs font-bold text-white dark:bg-[#b8f34a] dark:text-[#172017]"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
