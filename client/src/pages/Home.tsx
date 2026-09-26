@@ -23,6 +23,7 @@ import {
   FileText,
   Filter,
   Flame,
+  Gavel,
   Gauge,
   Globe2,
   GraduationCap,
