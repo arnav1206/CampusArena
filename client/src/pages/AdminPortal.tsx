@@ -177,8 +177,14 @@ export default function AdminPortal() {
   const [disputes, setDisputes] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "disputes" | "audit">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "competitions" | "participants" | "judges_reviews" | "disputes" | "audit">("overview");
   const [selectedDispute, setSelectedDispute] = useState<any | null>(null);
+
+  const [competitionsList, setCompetitionsList] = useState<any[]>([]);
+  const [participantsList, setParticipantsList] = useState<any[]>([]);
+  const [judgesReviewsList, setJudgesReviewsList] = useState<any[]>([]);
+  const [participantSearch, setParticipantSearch] = useState("");
+  const [reviewSearch, setReviewSearch] = useState("");
 
   const heroSpring = useSpring({
     from: { opacity: 0, transform: "translateY(18px)" },
@@ -186,16 +192,16 @@ export default function AdminPortal() {
     config: { tension: 210, friction: 22 },
   });
 
-  const [competitionsList, setCompetitionsList] = useState<any[]>([]);
-
   async function loadData() {
     setLoading(true);
     try {
-      const [metricsRes, disputesRes, auditRes, compsRes] = await Promise.all([
+      const [metricsRes, disputesRes, auditRes, compsRes, partRes, reviewsRes] = await Promise.all([
         fetch("/api/admin/metrics", { headers: getSessionHeaders() }),
         fetch("/api/admin/disputes", { headers: getSessionHeaders() }),
         fetch("/api/admin/audit-logs?limit=50", { headers: getSessionHeaders() }),
         fetch("/api/competitions"),
+        fetch("/api/admin/participants", { headers: getSessionHeaders() }),
+        fetch("/api/admin/judges-reviews", { headers: getSessionHeaders() }),
       ]);
       if (metricsRes.ok) {
         const d = await metricsRes.json();
@@ -206,6 +212,14 @@ export default function AdminPortal() {
       if (compsRes.ok) {
         const c = await compsRes.json();
         setCompetitionsList(c.competitions ?? c ?? []);
+      }
+      if (partRes.ok) {
+        const p = await partRes.json();
+        setParticipantsList(p.participants ?? []);
+      }
+      if (reviewsRes.ok) {
+        const r = await reviewsRes.json();
+        setJudgesReviewsList(r.reviews ?? []);
       }
     } catch {
       toast.error("Failed to load admin data.");
@@ -251,9 +265,13 @@ export default function AdminPortal() {
 
   const tabs = [
     { id: "overview" as const, label: "Overview", icon: LayoutDashboard },
+    { id: "competitions" as const, label: `Competitions (${competitionsList.length})`, icon: Globe2 },
+    { id: "participants" as const, label: `Participants (${participantsList.length})`, icon: Users },
+    { id: "judges_reviews" as const, label: `Judges & Reviews (${judgesReviewsList.length})`, icon: Award },
     { id: "disputes" as const, label: "Disputes", icon: AlertTriangle, badge: openDisputeCount },
     { id: "audit" as const, label: "Audit log", icon: LockKeyhole },
   ];
+
 
   return (
     <div className="app-shell relative min-h-screen overflow-x-clip bg-[#f8f8f4] text-[#253025] dark:bg-[#101610] dark:text-[#e8f5e0]">
@@ -426,8 +444,228 @@ export default function AdminPortal() {
           </div>
         )}
 
+        {/* ── COMPETITIONS TAB ── */}
+        {!loading && activeTab === "competitions" && (
+          <div className="space-y-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+                  <Globe2 size={13} /> Platform Directory
+                </div>
+                <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#edf7ea]">
+                  All Competitions ({competitionsList.length})
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#adbcaa]">
+                  Manage and monitor all hosted hackathons, summits, and challenges across colleges.
+                </p>
+              </div>
+              <Button variant="dark" onClick={() => setLocation("/create-competition")}>
+                + Create Competition
+              </Button>
+            </div>
+            <Surface className="overflow-hidden">
+              <div className="divide-y divide-[#f0efe9] dark:divide-[#29372a]">
+                {competitionsList.map((comp) => (
+                  <div key={comp.id} className="p-5 sm:p-6 transition hover:bg-[#fafbf7]/50 dark:hover:bg-[#182418]/50">
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-display text-lg font-extrabold text-[#202a20] dark:text-[#edf7ea]">
+                            {comp.title}
+                          </span>
+                          <StatusPill tone={comp.status === "published" || comp.status === "ongoing" ? "lime" : "amber"}>
+                            {comp.status}
+                          </StatusPill>
+                        </div>
+                        <p className="mt-1 text-xs text-[#7c867b] dark:text-[#a0b29e]">
+                          Type: <strong className="capitalize">{comp.type}</strong> · Slug: <code>{comp.slug}</code>
+                        </p>
+                        <p className="mt-2 text-xs leading-relaxed text-[#687367] line-clamp-2 dark:text-[#9db09a]">
+                          {comp.overview || comp.description}
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={() => setLocation(`/`)} className="shrink-0 text-xs">
+                        Open Dashboard <ChevronRight size={13} />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Surface>
+          </div>
+        )}
+
+        {/* ── PARTICIPANTS TAB ── */}
+        {!loading && activeTab === "participants" && (
+          <div className="space-y-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+                  <Users size={13} /> User Directory
+                </div>
+                <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#edf7ea]">
+                  Registered Participants ({participantsList.length})
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#adbcaa]">
+                  Complete roster of registered platform users, students, judges, and organizers.
+                </p>
+              </div>
+              <div className="relative w-full max-w-xs">
+                <input
+                  type="text"
+                  value={participantSearch}
+                  onChange={(e) => setParticipantSearch(e.target.value)}
+                  placeholder="Search by name, email, roll no..."
+                  className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-[#b8f34a] dark:border-[#354536] dark:bg-[#1d2a1e] dark:text-[#d4e1d2]"
+                />
+              </div>
+            </div>
+
+            <Surface className="overflow-hidden">
+              <div className="hidden grid-cols-[1.5fr_1.2fr_1fr_1fr] gap-4 border-b border-[#eeeee8] bg-[#fbfcf8] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] md:grid dark:border-[#2d3b2e] dark:bg-[#152216] dark:text-[#7d8f7d]">
+                <span>User / Email</span><span>Role / College</span><span>Branch / Roll No</span><span>Teams Joined</span>
+              </div>
+              <div className="divide-y divide-[#f0efe9] dark:divide-[#29372a]">
+                {participantsList
+                  .filter((p) => {
+                    const q = participantSearch.toLowerCase();
+                    return (
+                      p.user.name?.toLowerCase().includes(q) ||
+                      p.user.email?.toLowerCase().includes(q) ||
+                      p.user.role?.toLowerCase().includes(q) ||
+                      p.profile?.rollNumber?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((item) => (
+                    <div key={item.user.id} className="grid w-full items-center gap-3 px-5 py-4 text-xs md:grid-cols-[1.5fr_1.2fr_1fr_1fr] md:gap-4 md:px-6">
+                      <div>
+                        <div className="font-extrabold text-[#283428] dark:text-[#e4efe2]">{item.user.name}</div>
+                        <div className="text-[10px] text-[#868e83] dark:text-[#93a491]">{item.user.email}</div>
+                      </div>
+                      <div>
+                        <StatusPill tone={item.user.role === "admin" ? "rose" : item.user.role === "judge" ? "blue" : item.user.role === "organizer" ? "amber" : "lime"}>
+                          {item.user.role}
+                        </StatusPill>
+                        <div className="mt-1 text-[10px] text-[#868e83] dark:text-[#93a491]">{item.user.collegeId || "Campus Arena"}</div>
+                      </div>
+                      <div className="text-[#647163] dark:text-[#b0c0ae]">
+                        {item.profile?.branch ? `${item.profile.branch} (${item.profile.year || "Student"})` : "N/A"}
+                        <div className="text-[10px] text-[#868e83]">{item.profile?.rollNumber ? `Roll: ${item.profile.rollNumber}` : ""}</div>
+                      </div>
+                      <div className="font-semibold text-[#546253] dark:text-[#9eb19c]">
+                        {item.teamCount} {item.teamCount === 1 ? "Team" : "Teams"}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </Surface>
+          </div>
+        )}
+
+        {/* ── JUDGES & REVIEWS TAB ── */}
+        {!loading && activeTab === "judges_reviews" && (
+          <div className="space-y-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+                  <Award size={13} /> Evaluation Master Audit
+                </div>
+                <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#edf7ea]">
+                  Judges & Submitted Reviews ({judgesReviewsList.length})
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#adbcaa]">
+                  Audit all judge evaluations, weighted score outputs, rubric criteria breakdowns, and feedback comments across competitions.
+                </p>
+              </div>
+              <div className="relative w-full max-w-xs">
+                <input
+                  type="text"
+                  value={reviewSearch}
+                  onChange={(e) => setReviewSearch(e.target.value)}
+                  placeholder="Filter by judge, team, competition..."
+                  className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-[#b8f34a] dark:border-[#354536] dark:bg-[#1d2a1e] dark:text-[#d4e1d2]"
+                />
+              </div>
+            </div>
+
+            <Surface className="overflow-hidden">
+              {judgesReviewsList.length === 0 ? (
+                <div className="py-14 text-center text-sm text-[#969b94] dark:text-[#a8b8a6]">
+                  No submitted judge evaluations found on the platform yet.
+                </div>
+              ) : (
+                <div className="divide-y divide-[#f0efe9] dark:divide-[#29372a]">
+                  {judgesReviewsList
+                    .filter((r) => {
+                      const q = reviewSearch.toLowerCase();
+                      return (
+                        r.judgeName?.toLowerCase().includes(q) ||
+                        r.teamName?.toLowerCase().includes(q) ||
+                        r.competitionTitle?.toLowerCase().includes(q) ||
+                        r.submissionTitle?.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((item, idx) => (
+                      <div key={item.score.id || idx} className="p-5 sm:p-6 transition hover:bg-[#fafbf7]/50 dark:hover:bg-[#182418]/50">
+                        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-display text-base font-extrabold text-[#283528] dark:text-[#edf7ea]">
+                                Judge: {item.judgeName}
+                              </span>
+                              <span className="text-xs text-[#889086]">({item.judgeEmail})</span>
+                            </div>
+                            <p className="mt-1 text-xs font-semibold text-[#576456] dark:text-[#aabcb7]">
+                              Competition: <strong>{item.competitionTitle}</strong> · Round: <strong>{item.roundName}</strong>
+                            </p>
+                            <p className="mt-0.5 text-xs text-[#707c6f] dark:text-[#94a692]">
+                              Evaluated Team: <strong>{item.teamName}</strong> — Project: "{item.submissionTitle}"
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-[#889086]">
+                              Weighted Score Output
+                            </div>
+                            <div className="font-display text-2xl font-black text-[#669327] dark:text-[#b8f34a]">
+                              {item.score.totalWeightedScore} <span className="text-xs font-normal text-[#889086]">/ 100</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Score breakdown */}
+                        {item.score?.scores && (
+                          <div className="mt-4 rounded-xl border border-[#e0e5db] bg-[#f8faf4] p-3 dark:border-[#283729] dark:bg-[#131e14]">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-[#889186]">Criteria Scores</div>
+                            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                              {item.criteria?.map((crit: any) => (
+                                <div key={crit.id} className="flex items-center justify-between rounded-lg bg-white px-2.5 py-1.5 text-xs shadow-xs dark:bg-[#1a261c]">
+                                  <span className="font-semibold text-[#3b483a] dark:text-[#d3e2d1]">{crit.name}</span>
+                                  <span className="font-mono font-bold text-[#649027] dark:text-[#b8f34a]">
+                                    {item.score.scores[crit.id] || 0} / {crit.maxScore}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {item.score?.comments && (
+                          <div className="mt-3 text-xs italic leading-relaxed text-[#4a5849] dark:text-[#c4d6c2]">
+                            Judge Feedback: "{item.score.comments}"
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </Surface>
+          </div>
+        )}
+
         {/* ── DISPUTES ── */}
         {!loading && activeTab === "disputes" && (
+
           <div className="space-y-6">
             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
               <div>

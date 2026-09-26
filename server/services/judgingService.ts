@@ -143,4 +143,156 @@ export class JudgingService {
     });
     return success;
   }
+
+  static getAllSubmissions(competitionId?: string): Array<{
+    submission: Submission;
+    teamName: string;
+    competitionTitle: string;
+    roundName: string;
+    submittedByName: string;
+    evaluationsCount: number;
+    averageWeightedScore: number | null;
+  }> {
+    const state = db.get();
+    let subs = state.submissions;
+    if (competitionId) {
+      subs = subs.filter((s) => s.competitionId === competitionId);
+    }
+
+    return subs.map((sub) => {
+      const team = state.teams.find((t) => t.id === sub.teamId);
+      const comp = state.competitions.find((c) => c.id === sub.competitionId);
+      const round = state.rounds.find((r) => r.id === sub.roundId);
+      const submitter = state.users.find((u) => u.id === sub.submittedByUserId);
+      const assignments = state.judgeAssignments.filter(
+        (a) => a.roundId === sub.roundId && a.teamId === sub.teamId
+      );
+      const assignmentIds = new Set(assignments.map((a) => a.id));
+      const scores = state.scores.filter((s) => assignmentIds.has(s.assignmentId) && !s.isDraft);
+
+      const avgScore =
+        scores.length > 0
+          ? Math.round((scores.reduce((sum, s) => sum + s.totalWeightedScore, 0) / scores.length) * 10) / 10
+          : null;
+
+      return {
+        submission: sub,
+        teamName: team?.name || "Team",
+        competitionTitle: comp?.title || "Competition",
+        roundName: round?.name || "Round",
+        submittedByName: submitter?.name || "Participant",
+        evaluationsCount: scores.length,
+        averageWeightedScore: avgScore,
+      };
+    });
+  }
+
+  static getSubmissionsWithReviews(competitionId: string) {
+    const state = db.get();
+    const subs = state.submissions.filter((s) => s.competitionId === competitionId);
+
+    return subs.map((sub) => {
+      const team = state.teams.find((t) => t.id === sub.teamId);
+      const round = state.rounds.find((r) => r.id === sub.roundId);
+      const track = state.tracks.find((t) => t.id === sub.trackId);
+      const assignments = state.judgeAssignments.filter(
+        (a) => a.roundId === sub.roundId && a.teamId === sub.teamId
+      );
+
+      const reviews = assignments.map((assign) => {
+        const judgeUser = state.users.find((u) => u.id === assign.judgeUserId);
+        const scoreObj = state.scores.find((s) => s.assignmentId === assign.id);
+        const criteriaList = state.criteria.filter((c) => c.roundId === assign.roundId);
+
+        return {
+          assignment: assign,
+          judgeName: judgeUser?.name || "Unknown Judge",
+          judgeEmail: judgeUser?.email || "",
+          score: scoreObj || null,
+          criteria: criteriaList,
+        };
+      });
+
+      return {
+        submission: sub,
+        teamName: team?.name || "Team",
+        teamCode: team?.code || "N/A",
+        roundName: round?.name || "Round",
+        trackName: track?.name || "General",
+        reviews,
+      };
+    });
+  }
+
+  static assignJudgeToTeam(params: {
+    roundId: string;
+    competitionId: string;
+    judgeUserId: string;
+    teamId: string;
+  }) {
+    const { roundId, competitionId, judgeUserId, teamId } = params;
+    const state = db.get();
+    const existing = state.judgeAssignments.find(
+      (a) => a.roundId === roundId && a.teamId === teamId && a.judgeUserId === judgeUserId
+    );
+    if (existing) {
+      return { success: true, assignment: existing, message: "Judge is already assigned." };
+    }
+
+    const id = `ja_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newAssignment: JudgeAssignment = {
+      id,
+      roundId,
+      competitionId,
+      judgeUserId,
+      teamId,
+      status: "assigned",
+    };
+
+    db.update((draft) => {
+      draft.judgeAssignments.push(newAssignment);
+      draft.auditLogs.unshift({
+        id: `aud_${Date.now()}`,
+        competitionId,
+        actorUserId: "organizer",
+        actorName: "Organizer",
+        action: "JUDGE_ASSIGNED",
+        entityType: "JudgeAssignment",
+        entityId: id,
+        details: `Assigned judge ${judgeUserId} to team ${teamId} for round ${roundId}`,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    return { success: true, assignment: newAssignment };
+  }
+
+  static getAllReviewsForAdmin() {
+    const state = db.get();
+    return state.scores.map((score) => {
+      const assignment = state.judgeAssignments.find((a) => a.id === score.assignmentId);
+      const judgeUser = state.users.find((u) => u.id === score.judgeUserId);
+      const team = state.teams.find((t) => t.id === score.teamId);
+      const round = state.rounds.find((r) => r.id === score.roundId);
+      const competition = state.competitions.find((c) => c.id === assignment?.competitionId || round?.competitionId);
+      const submission = state.submissions.find(
+        (s) => s.roundId === score.roundId && s.teamId === score.teamId
+      );
+      const criteriaList = state.criteria.filter((c) => c.roundId === score.roundId);
+
+      return {
+        score,
+        assignment,
+        judgeName: judgeUser?.name || "Judge",
+        judgeEmail: judgeUser?.email || "",
+        teamName: team?.name || "Team",
+        roundName: round?.name || "Round",
+        competitionTitle: competition?.title || "Competition",
+        submissionTitle: submission?.title || "Project Submission",
+        submissionUrl: submission?.demoUrl || submission?.githubUrl || "",
+        criteria: criteriaList,
+      };
+    });
+  }
 }
+

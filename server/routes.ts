@@ -506,6 +506,62 @@ apiRouter.post("/judging/conflict", (req: Request, res: Response) => {
   res.json({ success });
 });
 
+// Judge: view all submissions across competitions or for a specific competition
+apiRouter.get("/judges/all-submissions", (req: Request, res: Response) => {
+  const competitionId = req.query.competitionId as string | undefined;
+  const submissions = JudgingService.getAllSubmissions(competitionId);
+  res.json({ submissions });
+});
+
+// Organizer: get all submissions with detailed judge reviews
+apiRouter.get("/competitions/:id/submissions-with-reviews", (req: Request, res: Response) => {
+  const submissions = JudgingService.getSubmissionsWithReviews(req.params.id);
+  res.json({ submissions });
+});
+
+// Organizer: list available judges for a competition
+apiRouter.get("/competitions/:id/judges", (req: Request, res: Response) => {
+  const state = db.get();
+  const judges = state.users.filter((u) => u.role === "judge" || u.role === "organizer" || u.role === "admin");
+  res.json({ judges });
+});
+
+// Organizer: assign a judge to evaluate a team's submission
+apiRouter.post("/judges/assign", (req: Request, res: Response) => {
+  const { roundId, competitionId, judgeUserId, teamId } = req.body;
+  if (!roundId || !competitionId || !judgeUserId || !teamId) {
+    return res.status(400).json({ success: false, error: "Missing required assignment fields." });
+  }
+  const result = JudgingService.assignJudgeToTeam({ roundId, competitionId, judgeUserId, teamId });
+  res.json(result);
+});
+
+// Admin: view all judge reviews across all competitions
+apiRouter.get("/admin/judges-reviews", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const reviews = JudgingService.getAllReviewsForAdmin();
+  res.json({ reviews });
+});
+
+// Admin: view all platform participants and student profiles
+apiRouter.get("/admin/participants", (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const state = db.get();
+  const participants = state.users.map((u) => {
+    const profile = state.profiles.find((p) => p.userId === u.id);
+    const memberships = state.teamMembers.filter((tm) => tm.userId === u.id);
+    const teams = state.teams.filter((t) => memberships.some((m) => m.teamId === t.id));
+    return {
+      user: u,
+      profile: profile || null,
+      teamCount: teams.length,
+      teams,
+    };
+  });
+  res.json({ participants });
+});
+
+
 // -----------------------------------------------------------------------------
 // 8. Attendance & Digital Event Pass
 // -----------------------------------------------------------------------------

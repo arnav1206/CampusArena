@@ -1534,33 +1534,342 @@ function OrganizerTeamsView({ openTeam }: { openTeam: () => void }) {
 }
 
 function OrganizerSubmissionsView() {
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [judges, setJudges] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [assignModalSub, setAssignModalSub] = useState<any | null>(null);
+  const [selectedJudgeId, setSelectedJudgeId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      const [subsRes, judgesRes] = await Promise.all([
+        fetch("/api/competitions/comp_bharat/submissions-with-reviews"),
+        fetch("/api/competitions/comp_bharat/judges"),
+      ]);
+
+      if (subsRes.ok) {
+        const data = await subsRes.json();
+        setSubmissions(data.submissions || []);
+      }
+      if (judgesRes.ok) {
+        const data = await judgesRes.json();
+        setJudges(data.judges || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleAssignJudge() {
+    if (!assignModalSub || !selectedJudgeId) {
+      toast.error("Please select a judge to assign.");
+      return;
+    }
+    setAssigning(true);
+    try {
+      const res = await fetch("/api/judges/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roundId: assignModalSub.submission.roundId,
+          competitionId: assignModalSub.submission.competitionId,
+          judgeUserId: selectedJudgeId,
+          teamId: assignModalSub.submission.teamId,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Judge assigned successfully.");
+        setAssignModalSub(null);
+        setSelectedJudgeId("");
+        loadData();
+      } else {
+        const errData = await res.json();
+        toast.error(errData.error || "Failed to assign judge.");
+      }
+    } catch {
+      toast.error("Failed to assign judge.");
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><FileCheck2 size={13} /> Round 02 · Concept note</div><h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">Submission room.</h1><p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">A calm view of what is in, what is blocked, and what needs a nudge.</p></div>
-        <Button variant="outline" onClick={() => toast("Submission deadline editor opened.")}><Clock3 size={15} /> Edit deadline</Button>
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+            <FileCheck2 size={13} /> Submissions & Judging Control
+          </div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20] dark:text-[#e8efe3]">
+            Submission & Evaluation Room
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087] dark:text-[#9cb09c]">
+            Monitor all participant project submissions, review detailed judge evaluations, and assign judges.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => loadData()}>
+          <Clock3 size={15} /> Refresh List
+        </Button>
       </div>
+
+      {/* Metrics Header */}
       <Surface className="p-5 sm:p-6">
         <div className="grid gap-5 md:grid-cols-3">
-          <div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Submitted</div><div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#2f3b2f] dark:text-[#e8efe3]">18 / 31</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#eef0e9] dark:bg-[#253426]"><div className="h-full w-[58%] rounded-full bg-[#9fcf4e]" /></div><div className="mt-2 text-[10px] font-semibold text-[#92998f] dark:text-[#9cb09c]">58% of registered teams</div></div>
-          <div className="border-t border-[#eeeee8] pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0 dark:border-[#273528]"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Need attention</div><div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#b36e17] dark:text-[#f8d070]">07</div><div className="mt-2 text-xs leading-5 text-[#92998f] dark:text-[#9cb09c]">Teams with missing files or invalid URLs.</div></div>
-          <div className="border-t border-[#eeeee8] pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0 dark:border-[#273528]"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Deadline</div><div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#2f3b2f] dark:text-[#e8efe3]">4 days</div><div className="mt-2 text-xs leading-5 text-[#92998f] dark:text-[#9cb09c]">24 Sep 2026 · 23:59 IST</div></div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Total Submissions</div>
+            <div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#2f3b2f] dark:text-[#e8efe3]">
+              {submissions.length}
+            </div>
+            <div className="mt-2 text-[10px] font-semibold text-[#92998f] dark:text-[#9cb09c]">Active in competition</div>
+          </div>
+          <div className="border-t border-[#eeeee8] pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0 dark:border-[#273528]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Judge Evaluations</div>
+            <div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#719d2a] dark:text-[#b8f34a]">
+              {submissions.reduce((acc, item) => acc + (item.reviews?.length || 0), 0)}
+            </div>
+            <div className="mt-2 text-xs leading-5 text-[#92998f] dark:text-[#9cb09c]">Assigned judge evaluations</div>
+          </div>
+          <div className="border-t border-[#eeeee8] pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0 dark:border-[#273528]">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9da39a] dark:text-[#7d8f7d]">Available Judges</div>
+            <div className="mt-1 font-display text-3xl font-extrabold tracking-[-0.06em] text-[#2f3b2f] dark:text-[#e8efe3]">
+              {judges.length}
+            </div>
+            <div className="mt-2 text-xs leading-5 text-[#92998f] dark:text-[#9cb09c]">Registered platform evaluation panel</div>
+          </div>
         </div>
       </Surface>
+
+      {/* Submissions List & Reviews */}
       <Surface className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#eeeee8] px-5 py-4 sm:px-6 dark:border-[#273528]"><div><h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Latest submissions</h2><p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">Files are validated, scanned, and preview-ready.</p></div><button onClick={() => toast("Submission form builder opened.")} className="text-xs font-extrabold text-[#67912a] dark:text-[#b8f34a]">Edit form <ChevronRight size={14} className="inline" /></button></div>
-        {([["Greenroom", "Sustainable campus toolkit", "Submitted 2h ago", "Valid", "lime"], ["404 Not Found", "Open-source mental health buddy", "Submitted yesterday", "Valid", "lime"], ["Ctrl + Alt + Elite", "Pending upload", "Started 3h ago", "Incomplete", "amber"], ["The Loop", "Broken demo URL", "Submitted yesterday", "Needs review", "rose"]] as const).map(([name, project, detail, status, tone]) => (
-          <button key={name} onClick={() => toast(`${name} submission opened.`)} className="flex w-full items-center gap-3 border-b border-[#f0efe9] px-5 py-4 text-left transition-colors hover:bg-[#fbfcf8] sm:px-6 dark:border-[#273528] dark:hover:bg-[#182418]">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#eef4e6] text-[#739c35] dark:bg-[#1e331b] dark:text-[#b8f34a]"><FileText size={16} /></div>
-            <div className="min-w-0 flex-1"><div className="truncate text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">{name} <span className="font-normal text-[#a2a79f] dark:text-[#7d8f7d]">· {project}</span></div><div className="mt-1 text-[10px] text-[#989f96] dark:text-[#9cb09c]">{detail}</div></div>
-            <StatusPill tone={tone as any}>{status}</StatusPill>
-            <ChevronRight size={15} className="text-[#adb2a9] dark:text-[#7d8f7d]" />
-          </button>
-        ))}
+        <div className="flex items-center justify-between border-b border-[#eeeee8] px-5 py-4 sm:px-6 dark:border-[#273528]">
+          <div>
+            <h2 className="font-display text-xl font-extrabold tracking-[-0.04em] text-[#263126] dark:text-[#e8efe3]">Submissions & Judge Feedback</h2>
+            <p className="mt-1 text-xs text-[#92998f] dark:text-[#9cb09c]">Click on any submission to expand judge reviews or assign judges.</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="py-12 text-center text-xs text-[#858e83]">Loading submissions and judge reviews...</div>
+        ) : submissions.length === 0 ? (
+          <div className="p-12 text-center text-xs text-[#858e83]">No submissions found for this competition.</div>
+        ) : (
+          <div className="divide-y divide-[#f0efe9] dark:divide-[#273528]">
+            {submissions.map((item) => {
+              const subId = item.submission.id;
+              const isExpanded = expandedSubId === subId;
+              const hasReviews = item.reviews && item.reviews.length > 0;
+
+              return (
+                <div key={subId} className="p-5 sm:p-6 transition-colors hover:bg-[#fafbf7]/50 dark:hover:bg-[#182418]/50">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                    <div className="flex items-start gap-3">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#eef4e6] text-[#739c35] dark:bg-[#1e331b] dark:text-[#b8f34a]">
+                        <FileText size={18} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-extrabold text-[#3b463b] dark:text-[#e8efe3]">
+                            {item.submission.title}
+                          </span>
+                          <span className="rounded-full bg-[#f2fbdc] px-2 py-0.5 text-[9px] font-bold text-[#466d19] dark:bg-[#20301b] dark:text-[#b8ef82]">
+                            Team {item.teamName} ({item.teamCode})
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-[#757d74] dark:text-[#93a691]">
+                          Round: <strong>{item.roundName}</strong> · Track: <strong>{item.trackName}</strong>
+                        </p>
+                        {item.submission.summary && (
+                          <p className="mt-1 text-xs text-[#868f84] line-clamp-1 dark:text-[#889a87]">
+                            {item.submission.summary}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setAssignModalSub(item)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#dfe4d8] bg-white px-3 py-1.5 text-xs font-bold text-[#2e3b2d] hover:bg-[#f6f8f3] dark:border-[#2f3f30] dark:bg-[#121c13] dark:text-[#e0ece0]"
+                      >
+                        <Gavel size={13} /> Assign Judge
+                      </button>
+
+                      <button
+                        onClick={() => setExpandedSubId(isExpanded ? null : subId)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#172017] px-3.5 py-1.5 text-xs font-bold text-white transition hover:bg-[#2c3a2c] dark:bg-[#b8f34a] dark:text-[#172017]"
+                      >
+                        {isExpanded ? "Hide Reviews" : `View Judge Reviews (${item.reviews?.length || 0})`}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Judge Reviews Section */}
+                  {isExpanded && (
+                    <div className="mt-5 rounded-2xl border border-[#e2e7dc] bg-[#f8faf4] p-4 sm:p-5 dark:border-[#2b3a2d] dark:bg-[#131e15]">
+                      <div className="flex items-center justify-between border-b border-[#e5eadf] pb-3 dark:border-[#273729]">
+                        <h4 className="font-display text-sm font-extrabold text-[#283528] dark:text-[#eff7eb]">
+                          Judge Reviews & Feedback ({item.reviews?.length || 0})
+                        </h4>
+                        {item.submission.demoUrl || item.submission.githubUrl ? (
+                          <a
+                            href={item.submission.demoUrl || item.submission.githubUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-bold text-[#68952a] underline dark:text-[#b8f34a]"
+                          >
+                            <ExternalLink size={12} /> Submission Link
+                          </a>
+                        ) : null}
+                      </div>
+
+                      {!hasReviews ? (
+                        <div className="py-6 text-center text-xs text-[#8a9287]">
+                          No judges have evaluated this submission yet. Click "Assign Judge" to delegate evaluation.
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-4">
+                          {item.reviews.map((rev: any, idx: number) => (
+                            <div
+                              key={rev.assignment.id || idx}
+                              className="rounded-xl border border-[#e0e5db] bg-white p-4 shadow-sm dark:border-[#283729] dark:bg-[#1a261c]"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="text-xs font-extrabold text-[#283528] dark:text-[#eef7ec]">
+                                    {rev.judgeName} <span className="font-normal text-[#889086]">({rev.judgeEmail})</span>
+                                  </div>
+                                  <div className="mt-0.5 text-[10px] font-semibold text-[#737c72] dark:text-[#90a28f]">
+                                    Status: <span className="capitalize">{rev.assignment.status.replace("_", " ")}</span>
+                                  </div>
+                                </div>
+
+                                {rev.score ? (
+                                  <div className="text-right">
+                                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#737c72]">
+                                      Weighted Score
+                                    </div>
+                                    <div className="font-display text-xl font-black text-[#669327] dark:text-[#b8f34a]">
+                                      {rev.score.totalWeightedScore} <span className="text-xs font-normal text-[#889086]">/ 100</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="rounded-full bg-[#fff7e5] px-2.5 py-0.5 text-[10px] font-bold text-[#9b6511] dark:bg-[#362713] dark:text-[#f2c76d]">
+                                    Evaluation pending
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Criteria breakdown */}
+                              {rev.score?.scores && (
+                                <div className="mt-3 border-t border-[#f0f2eb] pt-3 dark:border-[#263527]">
+                                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#889186]">Criteria Breakdown</div>
+                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    {rev.criteria?.map((crit: any) => (
+                                      <div key={crit.id} className="flex items-center justify-between rounded-lg bg-[#f8faf4] px-2.5 py-1.5 text-xs dark:bg-[#131e14]">
+                                        <span className="font-semibold text-[#3b483a] dark:text-[#d3e2d1]">{crit.name}</span>
+                                        <span className="font-mono font-bold text-[#649027] dark:text-[#b8f34a]">
+                                          {rev.score.scores[crit.id] || 0} / {crit.maxScore}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Comments */}
+                              {rev.score?.comments && (
+                                <div className="mt-3 border-t border-[#f0f2eb] pt-2 dark:border-[#263527]">
+                                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#889186]">Judge Remarks</div>
+                                  <p className="mt-1 text-xs italic leading-relaxed text-[#4a5849] dark:text-[#c4d6c2]">
+                                    "{rev.score.comments}"
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Surface>
+
+      {/* Assign Judge Interactive Modal */}
+      {assignModalSub && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[#172017]/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[500px] rounded-3xl border border-white/50 bg-[#fbfcf7] p-6 shadow-2xl dark:border-[#3c4c3d] dark:bg-[#172217]">
+            <div className="flex items-start justify-between border-b border-[#e9ece2] pb-4 dark:border-[#314033]">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#639227] dark:text-[#b8f34a]">
+                  Organizer Control · Assign Judge
+                </span>
+                <h2 className="mt-1 font-display text-xl font-extrabold text-[#263126] dark:text-[#eff7ec]">
+                  Assign Judge to {assignModalSub.teamName}
+                </h2>
+                <p className="mt-1 text-xs text-[#7e877d] dark:text-[#9bb098]">
+                  Submission: "{assignModalSub.submission.title}"
+                </p>
+              </div>
+              <button onClick={() => setAssignModalSub(null)} className="rounded-lg p-2 text-[#929a91] hover:bg-[#eef0e9] dark:hover:bg-[#253427]">
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-[#556254] dark:text-[#b4c3b2]">
+                  Select Judge User
+                </span>
+                <select
+                  value={selectedJudgeId}
+                  onChange={(e) => setSelectedJudgeId(e.target.value)}
+                  className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-2.5 text-xs outline-none focus:ring-2 focus:ring-[#b8f34a] dark:border-[#324233] dark:bg-[#18231a] dark:text-[#eff7ec]"
+                >
+                  <option value="">-- Choose an available judge --</option>
+                  {judges.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.name} ({j.email}) — Role: {j.role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="rounded-xl border border-[#e1e6db] bg-[#f8faf5] p-3 text-xs leading-5 text-[#5e695d] dark:border-[#2e3e2f] dark:bg-[#131d14] dark:text-[#9bb098]">
+                Assigning a judge will immediately add this submission to their evaluation chamber queue.
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-[#e9ece2] pt-4 dark:border-[#314033]">
+              <button
+                onClick={() => setAssignModalSub(null)}
+                className="text-xs font-bold text-[#889086] dark:text-[#a5b6a3]"
+              >
+                Cancel
+              </button>
+              <Button variant="dark" onClick={handleAssignJudge} className={assigning ? "opacity-60 cursor-not-allowed" : ""}>
+                {assigning ? "Assigning..." : "Assign Judge"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function AttendanceView({ onOpenQRScanner }: { onOpenQRScanner: () => void }) {
   return (

@@ -164,6 +164,44 @@ export function JudgePortal() {
     }
   };
 
+  const [tab, setTab] = useState<"assigned" | "all">("assigned");
+  const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewSubmissionModal, setViewSubmissionModal] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (user && tab === "all") {
+      loadAllSubmissions();
+    }
+  }, [user?.id, tab]);
+
+  async function loadAllSubmissions() {
+    try {
+      setLoadingAll(true);
+      const res = await fetch("/api/judges/all-submissions");
+      if (res.ok) {
+        const data = await res.json();
+        setAllSubmissions(data.submissions || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAll(false);
+    }
+  }
+
+  const filteredAllSubmissions = allSubmissions.filter((item) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      item.submission.title?.toLowerCase().includes(q) ||
+      item.teamName?.toLowerCase().includes(q) ||
+      item.competitionTitle?.toLowerCase().includes(q) ||
+      item.roundName?.toLowerCase().includes(q) ||
+      item.submittedByName?.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -198,9 +236,209 @@ export function JudgePortal() {
             </button>
           </div>
         </div>
+
+        {/* Tab Switcher */}
+        <div className="mt-6 flex items-center gap-2 border-t border-white/10 pt-4">
+          <button
+            onClick={() => setTab("assigned")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              tab === "assigned"
+                ? "bg-[#b8f34a] text-[#172017]"
+                : "bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            }`}
+          >
+            <Gavel size={14} /> My Assignments ({assignments.length})
+          </button>
+          <button
+            onClick={() => setTab("all")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              tab === "all"
+                ? "bg-[#b8f34a] text-[#172017]"
+                : "bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            }`}
+          >
+            <FileText size={14} /> All Competition Submissions ({allSubmissions.length})
+          </button>
+        </div>
       </section>
 
-      {/* Main Workspace Layout */}
+      {tab === "all" ? (
+        /* All Submissions Gallery View */
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-display text-xl font-extrabold text-[#172017] dark:text-[#eff7ec]">
+                All Platform Submissions
+              </h2>
+              <p className="text-xs text-[#737b71] dark:text-[#9bb098]">
+                Browse all submitted projects across rounds, tracks, and competitions.
+              </p>
+            </div>
+            <div className="relative w-full max-w-xs">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search submission, team, competition..."
+                className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-[#b8f34a] dark:border-[#2b3a2d] dark:bg-[#162117] dark:text-[#e5efe2]"
+              />
+            </div>
+          </div>
+
+          {loadingAll ? (
+            <div className="py-12 text-center text-xs text-[#858e83]">Loading all competition submissions...</div>
+          ) : filteredAllSubmissions.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#d5dcd2] p-12 text-center text-xs text-[#858e83] dark:border-[#2a382c]">
+              No submissions match your search query.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredAllSubmissions.map((item) => (
+                <div
+                  key={item.submission.id}
+                  className="flex flex-col justify-between rounded-2xl border border-[#e1e0da] bg-white p-5 shadow-sm transition hover:shadow-md dark:border-[#273528] dark:bg-[#162018]"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded-full bg-[#f2fbdc] px-2.5 py-0.5 text-[10px] font-bold text-[#466d19] dark:bg-[#20301b] dark:text-[#b8ef82]">
+                        {item.roundName}
+                      </span>
+                      <span className="text-[10px] font-bold text-[#889085] dark:text-[#90a28f]">
+                        {item.competitionTitle}
+                      </span>
+                    </div>
+
+                    <h3 className="mt-3 font-display text-base font-extrabold text-[#172017] dark:text-[#eff7ec]">
+                      {item.submission.title}
+                    </h3>
+                    <div className="mt-1 text-xs font-semibold text-[#546253] dark:text-[#b0c2af]">
+                      Team: {item.teamName}
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-[#727b70] line-clamp-3 dark:text-[#8f9f8e]">
+                      {item.submission.summary}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 border-t border-[#f0efe9] pt-3 dark:border-[#273528]">
+                    <div className="flex items-center justify-between text-[11px] text-[#788276] dark:text-[#94a692]">
+                      <span>Evaluations: <strong>{item.evaluationsCount}</strong></span>
+                      <span>Avg Score: <strong>{item.averageWeightedScore !== null ? `${item.averageWeightedScore} / 100` : "Unrated"}</strong></span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      {item.submission.demoUrl || item.submission.githubUrl ? (
+                        <a
+                          href={item.submission.demoUrl || item.submission.githubUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-[#2e571c] hover:underline dark:text-[#b8f34a]"
+                        >
+                          <ExternalLink size={12} /> Project Link
+                        </a>
+                      ) : <span />}
+                      <button
+                        onClick={() => setViewSubmissionModal(item)}
+                        className="rounded-lg bg-[#172017] px-3 py-1.5 text-xs font-bold text-white transition hover:bg-[#2a382a] dark:bg-[#b8f34a] dark:text-[#172017]"
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Submission Details Modal */}
+          {viewSubmissionModal && (
+            <div className="fixed inset-0 z-50 grid place-items-center bg-[#172017]/45 p-4 backdrop-blur-sm">
+              <div className="max-h-[90vh] w-full max-w-[640px] overflow-y-auto rounded-3xl border border-white/50 bg-[#fbfcf7] p-6 shadow-2xl dark:border-[#3c4c3d] dark:bg-[#172217]">
+                <div className="flex items-start justify-between border-b border-[#e9ece2] pb-4 dark:border-[#314033]">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#639227] dark:text-[#b8f34a]">
+                      {viewSubmissionModal.roundName} · {viewSubmissionModal.competitionTitle}
+                    </span>
+                    <h2 className="mt-1 font-display text-2xl font-extrabold text-[#263126] dark:text-[#eff7ec]">
+                      {viewSubmissionModal.submission.title}
+                    </h2>
+                    <div className="mt-1 text-xs text-[#7b857a] dark:text-[#9db09b]">
+                      By Team <strong>{viewSubmissionModal.teamName}</strong> (Submitted by {viewSubmissionModal.submittedByName})
+                    </div>
+                  </div>
+                  <button onClick={() => setViewSubmissionModal(null)} className="rounded-lg p-2 text-[#929a91] hover:bg-[#eef0e9] dark:hover:bg-[#253427]">
+                    ✕
+                  </button>
+                </div>
+
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-[#818a7f] dark:text-[#99aa97]">Summary</div>
+                    <p className="mt-1 text-sm leading-relaxed text-[#3a4739] dark:text-[#d3e2d1]">
+                      {viewSubmissionModal.submission.summary}
+                    </p>
+                  </div>
+
+                  {viewSubmissionModal.submission.demoUrl && (
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-[#818a7f] dark:text-[#99aa97]">Live Demo</div>
+                      <a href={viewSubmissionModal.submission.demoUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1.5 text-xs font-bold text-[#356121] underline dark:text-[#b8f34a]">
+                        <ExternalLink size={13} /> {viewSubmissionModal.submission.demoUrl}
+                      </a>
+                    </div>
+                  )}
+
+                  {viewSubmissionModal.submission.githubUrl && (
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-[#818a7f] dark:text-[#99aa97]">Code Repository</div>
+                      <a href={viewSubmissionModal.submission.githubUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1.5 text-xs font-bold text-[#356121] underline dark:text-[#b8f34a]">
+                        <ExternalLink size={13} /> {viewSubmissionModal.submission.githubUrl}
+                      </a>
+                    </div>
+                  )}
+
+                  {viewSubmissionModal.submission.files?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-[#818a7f] dark:text-[#99aa97]">Attached Files</div>
+                      <div className="mt-2 space-y-1.5">
+                        {viewSubmissionModal.submission.files.map((file: any) => (
+                          <a
+                            key={file.id || file.url}
+                            href={file.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-between rounded-xl border border-[#e2e7dc] bg-white p-3 text-xs font-bold text-[#2e3b2d] hover:bg-[#f6f8f3] dark:border-[#2f3f30] dark:bg-[#121c13] dark:text-[#e0ece0]"
+                          >
+                            <span className="flex items-center gap-2"><FileText size={15} /> {file.name}</span>
+                            <span className="text-[10px] text-[#869084]">{(file.sizeBytes / 1024).toFixed(0)} KB</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-[#e1e6db] bg-[#f8faf5] p-4 dark:border-[#2f3e30] dark:bg-[#131d14]">
+                    <div className="text-xs font-bold uppercase tracking-wider text-[#639227] dark:text-[#b8f34a]">Scoring Overview</div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-[#394638] dark:text-[#d3e2d1]">
+                      <span>Evaluations Completed: <strong>{viewSubmissionModal.evaluationsCount}</strong></span>
+                      <span>Average Score: <strong>{viewSubmissionModal.averageWeightedScore !== null ? `${viewSubmissionModal.averageWeightedScore} / 100` : "Not evaluated yet"}</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t border-[#e9ece2] pt-4 text-right dark:border-[#314033]">
+                  <button
+                    onClick={() => setViewSubmissionModal(null)}
+                    className="rounded-xl bg-[#172017] px-4 py-2 text-xs font-bold text-white dark:bg-[#b8f34a] dark:text-[#172017]"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Assigned Submissions Workspace Layout */
+
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         {/* Left: Assigned Projects Queue */}
         <div className="space-y-3">
@@ -418,6 +656,8 @@ export function JudgePortal() {
           </div>
         )}
       </div>
+    )}
     </div>
   );
 }
+
