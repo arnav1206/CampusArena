@@ -226,8 +226,6 @@ export default defineConfig({
           if (id.includes("node_modules")) {
             if (id.includes("lucide-react")) return "icons-vendor";
             if (id.includes("@react-spring")) return "animation-vendor";
-            if (id.includes("react-dom") || id.includes("react/") || id.includes("wouter")) return "react-core";
-            return "vendor-utils";
           }
         },
       },
