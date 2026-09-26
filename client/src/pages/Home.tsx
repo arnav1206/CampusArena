@@ -1380,23 +1380,83 @@ function OrganizerOverview({ setActive }: { setActive: (v: OrganizerView) => voi
 }
 
 function SetupView({ setActive }: { setActive: (v: OrganizerView) => void }) {
-  const steps = [["Basic information", "Brand, overview, eligibility", true], ["Schedule & rounds", "3 rounds configured", true], ["Registration form", "8 fields · ready", true], ["Payment", "₹500 base + add-ons", true], ["Submission", "Concept note form", true], ["Judging", "12 judges · 4 criteria", true], ["Certificates & results", "Not configured", false], ["Notifications", "3 templates ready", true]] as const;
+  const [, setLocation] = useLocation();
+  const steps = [
+    ["Basic information", "Brand, overview, eligibility", true, 0],
+    ["Schedule & rounds", "3 rounds configured", true, 1],
+    ["Registration form", "8 fields · ready", true, 4],
+    ["Payment", "₹500 base + add-ons", true, 5],
+    ["Submission", "Concept note form", true, 6],
+    ["Judging", "12 judges · 4 criteria", true, 7],
+    ["Certificates & results", "Not configured", false, 8],
+    ["Notifications", "3 templates ready", true, 9],
+  ] as const;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]"><Settings2 size={13} /> Configuration</div><h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20]">Competition setup.</h1><p className="mt-2 text-sm leading-6 text-[#899087]">Build for Bharat is 88% ready. Finish the one thing that affects your participant experience next.</p></div>
-        <div className="flex gap-2"><Button variant="outline" onClick={() => toast("Preview opened.")}><ExternalLink size={15} /> Preview</Button><Button variant="lime" onClick={() => toast("Competition published.")}><Globe2 size={15} /> Publish changes</Button></div>
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#719d2a]">
+            <Settings2 size={13} /> Configuration
+          </div>
+          <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20]">
+            Competition setup.
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-[#899087]">
+            Build for Bharat is 88% ready. Finish the one thing that affects your participant experience next.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setLocation("/create-competition?step=10")}>
+            <ExternalLink size={15} /> Preview
+          </Button>
+          <Button variant="lime" onClick={() => setLocation("/create-competition?step=10")}>
+            <Globe2 size={15} /> Publish changes
+          </Button>
+        </div>
       </div>
       <Surface className="overflow-hidden">
         <div className="flex flex-col gap-4 bg-[#f2fbdc] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-          <div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#dff2ab] text-[#6d992b]"><ListChecks size={18} /></div><div><div className="text-sm font-extrabold text-[#3c532b]">Setup health · nearly there</div><div className="mt-1 text-xs leading-5 text-[#73845f]">Registration-ready information is complete. Certificate setup can happen after the competition.</div></div></div>
-          <div className="min-w-[170px]"><div className="flex items-center justify-between text-[10px] font-bold text-[#6e872e]"><span>Overall completeness</span><span>88%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dcebb5]"><div className="h-full w-[88%] rounded-full bg-[#87b638]" /></div></div>
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#dff2ab] text-[#6d992b]">
+              <ListChecks size={18} />
+            </div>
+            <div>
+              <div className="text-sm font-extrabold text-[#3c532b]">Setup health · nearly there</div>
+              <div className="mt-1 text-xs leading-5 text-[#73845f]">
+                Registration-ready information is complete. Certificate setup can happen after the competition.
+              </div>
+            </div>
+          </div>
+          <div className="min-w-[170px]">
+            <div className="flex items-center justify-between text-[10px] font-bold text-[#6e872e]">
+              <span>Overall completeness</span>
+              <span>88%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#dcebb5]">
+              <div className="h-full w-[88%] rounded-full bg-[#87b638]" />
+            </div>
+          </div>
         </div>
         <div className="grid gap-0 md:grid-cols-2">
-          {steps.map(([title, detail, done], index) => (
-            <button key={title} onClick={() => toast(`${title} editor opened.`)} className="flex items-center gap-4 border-b border-[#f0f0ea] p-5 text-left transition-colors hover:bg-[#fbfcf7] md:[&:nth-child(odd)]:border-r">
-              <div className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl", done ? "bg-[#eef8d7] text-[#70a02d]" : "bg-[#fff5df] text-[#b7791c]")}>{done ? <Check size={16} /> : <span className="text-xs font-black">{index + 1}</span>}</div>
-              <div className="min-w-0 flex-1"><div className="text-sm font-extrabold text-[#384338]">{title}</div><div className="mt-1 text-xs text-[#969e94]">{detail}</div></div>
+          {steps.map(([title, detail, done, stepIdx], index) => (
+            <button
+              key={title}
+              onClick={() => setLocation(`/create-competition?step=${stepIdx}`)}
+              className="flex items-center gap-4 border-b border-[#f0f0ea] p-5 text-left transition-colors hover:bg-[#fbfcf7] md:[&:nth-child(odd)]:border-r"
+            >
+              <div
+                className={cn(
+                  "grid h-9 w-9 shrink-0 place-items-center rounded-xl",
+                  done ? "bg-[#eef8d7] text-[#70a02d]" : "bg-[#fff5df] text-[#b7791c]"
+                )}
+              >
+                {done ? <Check size={16} /> : <span className="text-xs font-black">{index + 1}</span>}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-extrabold text-[#384338]">{title}</div>
+                <div className="mt-1 text-xs text-[#969e94]">{detail}</div>
+              </div>
               <ChevronRight size={16} className="text-[#b3b8ae]" />
             </button>
           ))}

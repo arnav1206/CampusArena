@@ -25,7 +25,15 @@ const STEPS = [
 export default function CreateCompetition() {
   const { user, getSessionHeaders } = useAuth();
   const [, setLocation] = useLocation();
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const step = params.get("step");
+    if (step !== null) {
+      const s = parseInt(step, 10);
+      if (!isNaN(s) && s >= 0 && s < STEPS.length) return s;
+    }
+    return 0;
+  });
   const [competitionId, setCompetitionId] = useState<string | null>(null);
 
   // Form State
