@@ -700,6 +700,8 @@ function StudentHome({
 
 /* ── CompetitionsView ────────────────────────────────────────────────────── */
 function CompetitionsView({ openCompetition, competitions }: { openCompetition: (c: CompCard) => void; competitions: CompCard[] }) {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const [filter, setFilter] = useState("All");
   const filters = useMemo(() => ["All", ...Array.from(new Set(competitions.map((c) => c.type)))], [competitions]);
   const filtered = useMemo(() => filter === "All" ? competitions : competitions.filter((c) => c.type === filter), [filter, competitions]);
@@ -712,7 +714,19 @@ function CompetitionsView({ openCompetition, competitions }: { openCompetition: 
           <h1 className="font-display text-4xl font-extrabold tracking-[-0.065em] text-[#1e2a20]">Find your next arena.</h1>
           <p className="mt-2 max-w-[520px] text-sm leading-6 text-[#899087]">Browse campus competitions, compare deadlines, and find the one that makes you curious enough to stay up late.</p>
         </div>
-        <Button variant="dark" onClick={() => toast("Shareable competition link copied.")}><ExternalLink size={15} /> Share discover page</Button>
+        <Button
+          variant="dark"
+          onClick={() => {
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(window.location.href);
+              toast.success("Shareable discover page link copied to clipboard!");
+            } else {
+              toast.info("Discover page URL: " + window.location.href);
+            }
+          }}
+        >
+          <ExternalLink size={15} /> Share discover page
+        </Button>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {filters.map((item) => (
@@ -721,7 +735,7 @@ function CompetitionsView({ openCompetition, competitions }: { openCompetition: 
       </div>
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((comp) => <CompetitionCard key={comp.id} competition={comp} onOpen={openCompetition} />)}
-        <button onClick={() => toast("Organizer submission form opened.")} className="group flex min-h-[263px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#d9ddd0] bg-[#f4f8e7] p-6 text-center hover:border-[#a7c66a] dark:border-[#2e422c] dark:bg-[#132213] dark:hover:border-[#527a44]">
+        <button onClick={() => setLocation("/create-competition")} className="group flex min-h-[263px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#d9ddd0] bg-[#f4f8e7] p-6 text-center hover:border-[#a7c66a] dark:border-[#2e422c] dark:bg-[#132213] dark:hover:border-[#527a44]">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-[#dff2ac] text-[#6f9c2a] transition-transform group-hover:scale-110 dark:bg-[#20371a] dark:text-[#b8f34a]"><Plus size={19} /></div>
           <div className="mt-4 text-sm font-extrabold text-[#4e6e24] dark:text-[#e8efe3]">Host a competition</div>
           <div className="mt-1 max-w-[160px] text-xs leading-5 text-[#829867] dark:text-[#9cb09c]">Bring your idea to the whole campus.</div>
@@ -735,7 +749,26 @@ function CompetitionsView({ openCompetition, competitions }: { openCompetition: 
               <StatusPill tone="blue">Smart matching</StatusPill>
               <h2 className="mt-4 font-display text-3xl font-extrabold leading-[1] tracking-[-0.06em] text-[#173552] dark:text-[#e8efe3]">Looking for a team?<br /><span className="text-[#3d78b8] dark:text-[#8fc0ff]">Be findable.</span></h2>
               <p className="mt-3 text-sm leading-6 text-[#58748f] dark:text-[#9bb8d6]">Turn on your intent and relevant teams can invite you. Your profile stays private until you choose to connect.</p>
-              <Button variant="dark" className="mt-5" onClick={() => toast("You're now marked as looking for a team.")}>Turn on team matching <ArrowUpRight size={15} /></Button>
+              <Button
+                variant="dark"
+                className="mt-5"
+                onClick={async () => {
+                  try {
+                    if (user) {
+                      await fetch("/api/profile/looking-for-team", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ userId: user.id, isLooking: true }),
+                      });
+                    }
+                    toast.success("You are now marked as looking for a team!");
+                  } catch {
+                    toast.error("Failed to update status");
+                  }
+                }}
+              >
+                Turn on team matching <ArrowUpRight size={15} />
+              </Button>
             </div>
           </div>
           <div className="flex items-center justify-center border-t border-[#dce8f4] bg-white p-6 md:border-l md:border-t-0 dark:border-[#1d3c5c] dark:bg-[#172433]">
