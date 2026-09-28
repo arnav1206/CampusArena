@@ -82,8 +82,7 @@ export default function CreateCompetition() {
   const fadeProps = useSpring({
     from: { opacity: 0, transform: "translateY(10px)" },
     to: { opacity: 1, transform: "translateY(0px)" },
-    reset: true,
-    key: currentStep
+    reset: false,
   });
 
   const isInitialMount = useRef(true);
@@ -142,8 +141,9 @@ export default function CreateCompetition() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.id && !competitionId) {
-          setCompetitionId(data.id);
+        const savedId = data.competition?.id || data.id;
+        if (savedId && !competitionId) {
+          setCompetitionId(savedId);
         }
       }
     } catch (err) {
@@ -209,7 +209,7 @@ export default function CreateCompetition() {
       });
       if (!resDraft.ok) throw new Error("Failed to save draft");
       const draftData = await resDraft.json();
-      currentId = draftData.id;
+      currentId = draftData.competition?.id || draftData.id || competitionId;
 
       // Then publish
       const resPublish = await fetch(`/api/competitions/${currentId}/status`, {
@@ -379,8 +379,16 @@ export default function CreateCompetition() {
                   <label className="mb-1.5 block text-xs font-bold text-[#606b5e] dark:text-[#d0ded0]">Min Team Size</label>
                   <input 
                     type="number" min="1"
-                    value={teamRules.minTeamSize} 
-                    onChange={e => setTeamRules({...teamRules, minTeamSize: parseInt(e.target.value) || 1})}
+                    value={teamRules.minTeamSize === 0 ? "" : teamRules.minTeamSize} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setTeamRules({...teamRules, minTeamSize: val === "" ? 0 : parseInt(val, 10) || 0});
+                    }}
+                    onBlur={() => {
+                      if (!teamRules.minTeamSize || teamRules.minTeamSize < 1) {
+                        setTeamRules(prev => ({ ...prev, minTeamSize: 1 }));
+                      }
+                    }}
                     className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-3 text-sm outline-none ring-[#b8f34a] focus:ring-2 dark:border-[#273528] dark:bg-[#101812] dark:text-[#e8efe3]" 
                   />
                 </div>
@@ -388,8 +396,16 @@ export default function CreateCompetition() {
                   <label className="mb-1.5 block text-xs font-bold text-[#606b5e] dark:text-[#d0ded0]">Max Team Size</label>
                   <input 
                     type="number" min="1"
-                    value={teamRules.maxTeamSize} 
-                    onChange={e => setTeamRules({...teamRules, maxTeamSize: parseInt(e.target.value) || 1})}
+                    value={teamRules.maxTeamSize === 0 ? "" : teamRules.maxTeamSize} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setTeamRules({...teamRules, maxTeamSize: val === "" ? 0 : parseInt(val, 10) || 0});
+                    }}
+                    onBlur={() => {
+                      if (!teamRules.maxTeamSize || teamRules.maxTeamSize < 1) {
+                        setTeamRules(prev => ({ ...prev, maxTeamSize: 1 }));
+                      }
+                    }}
                     className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-3 text-sm outline-none ring-[#b8f34a] focus:ring-2 dark:border-[#273528] dark:bg-[#101812] dark:text-[#e8efe3]" 
                   />
                 </div>
@@ -492,8 +508,11 @@ export default function CreateCompetition() {
                     <label className="mb-1.5 block text-xs font-bold text-[#606b5e] dark:text-[#d0ded0]">Base Team Fee (INR)</label>
                     <input 
                       type="number" min="0"
-                      value={payment.baseTeamFee} 
-                      onChange={e => setPayment({...payment, baseTeamFee: parseInt(e.target.value) || 0})}
+                      value={payment.baseTeamFee === 0 ? "" : payment.baseTeamFee} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setPayment({...payment, baseTeamFee: val === "" ? 0 : parseInt(val, 10) || 0});
+                      }}
                       className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-3 text-sm outline-none ring-[#b8f34a] focus:ring-2 dark:border-[#273528] dark:bg-[#162018] dark:text-[#e8efe3]" 
                     />
                   </div>
@@ -502,8 +521,16 @@ export default function CreateCompetition() {
                       <label className="mb-1.5 block text-xs font-bold text-[#606b5e] dark:text-[#d0ded0]">Members included in Base Fee</label>
                       <input 
                         type="number" min="1"
-                        value={payment.baseTeamMemberCount} 
-                        onChange={e => setPayment({...payment, baseTeamMemberCount: parseInt(e.target.value) || 1})}
+                        value={payment.baseTeamMemberCount === 0 ? "" : payment.baseTeamMemberCount} 
+                        onChange={e => {
+                          const val = e.target.value;
+                          setPayment({...payment, baseTeamMemberCount: val === "" ? 0 : parseInt(val, 10) || 0});
+                        }}
+                        onBlur={() => {
+                          if (!payment.baseTeamMemberCount || payment.baseTeamMemberCount < 1) {
+                            setPayment(prev => ({ ...prev, baseTeamMemberCount: 1 }));
+                          }
+                        }}
                         className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-3 text-sm outline-none ring-[#b8f34a] focus:ring-2 dark:border-[#273528] dark:bg-[#162018] dark:text-[#e8efe3]" 
                       />
                     </div>
@@ -511,8 +538,11 @@ export default function CreateCompetition() {
                       <label className="mb-1.5 block text-xs font-bold text-[#606b5e] dark:text-[#d0ded0]">Additional Member Fee (INR)</label>
                       <input 
                         type="number" min="0"
-                        value={payment.additionalMemberFee} 
-                        onChange={e => setPayment({...payment, additionalMemberFee: parseInt(e.target.value) || 0})}
+                        value={payment.additionalMemberFee === 0 ? "" : payment.additionalMemberFee} 
+                        onChange={e => {
+                          const val = e.target.value;
+                          setPayment({...payment, additionalMemberFee: val === "" ? 0 : parseInt(val, 10) || 0});
+                        }}
                         className="w-full rounded-xl border border-[#dfe4d8] bg-white px-3.5 py-3 text-sm outline-none ring-[#b8f34a] focus:ring-2 dark:border-[#273528] dark:bg-[#162018] dark:text-[#e8efe3]" 
                       />
                     </div>
