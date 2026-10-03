@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { getSessionHeaders } from "@/lib/authClientDb";
 import { Link, useLocation } from "wouter";
 import { useSpring, animated } from "@react-spring/web";
 import { 
@@ -23,7 +24,7 @@ const STEPS = [
 ];
 
 export default function CreateCompetition() {
-  const { user, getSessionHeaders } = useAuth();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState(() => {
     const params = new URLSearchParams(window.location.search);

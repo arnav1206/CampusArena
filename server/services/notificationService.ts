@@ -55,7 +55,7 @@ export class NotificationService {
         (user) =>
           targetRole === "all" ||
           user.role === targetRole ||
-          (targetRole === "student" && (user.role === "student" || user.role === "user" || !user.role))
+          (targetRole === "student" && (user.role === "student" || (user.role as string) === "user" || !user.role))
       );
       recipientCount = recipients.length;
       recipients.forEach((recipient, index) => draft.notifications.unshift({
@@ -140,7 +140,7 @@ export class NotificationService {
         );
         const memberUserIds = members.map((m) => m.userId);
         const studentUserIds = draft.users
-          .filter((u) => u.role === "student" || u.role === "user" || !u.role)
+          .filter((u) => u.role === "student" || (u.role as string) === "user" || !u.role)
           .map((u) => u.id);
         targetUserIds = Array.from(new Set([...memberUserIds, ...studentUserIds]));
       } else if (targetType === "team" && targetId) {

@@ -28,8 +28,9 @@ export async function apiRequestOtp(
       body: JSON.stringify({ identifier, type }),
     });
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { success: false, message: data.message || data.error || "Failed to send verification code." };
     }
   } catch {
     // Network or server offline
@@ -49,8 +50,9 @@ export async function apiRequestDualOtp(
       body: JSON.stringify({ email, mobile }),
     });
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { success: false, message: data.message || data.error || "Failed to send verification code." };
     }
   } catch {
     // Network or server offline
@@ -84,8 +86,9 @@ export async function apiVerifyOtp(
       body: JSON.stringify({ identifier, code }),
     });
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { success: false, error: data.error || "Verification failed." };
     }
   } catch {}
   return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." };
@@ -124,8 +127,9 @@ export async function apiVerifyDualOtp(params: {
       body: JSON.stringify(params),
     });
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { success: false, error: data.error || "Dual factor verification failed." };
     }
   } catch {}
   return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." };
@@ -148,8 +152,9 @@ export async function apiRegisterStudent(params: {
       body: JSON.stringify(params),
     });
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { success: false, error: data.error || "Registration failed." };
     }
   } catch {}
   return { success: false, error: "The secure authentication service is unavailable. Please try again shortly." };
@@ -159,8 +164,9 @@ export async function apiGetUser(userId: string): Promise<{ user?: User; error?:
   try {
     const res = await fetch(`/api/auth/me?userId=${userId}`);
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { error: data.error || "Failed to load user." };
     }
   } catch {}
   return { error: "The secure authentication service is unavailable." };
@@ -170,8 +176,9 @@ export async function apiGetProfile(userId: string): Promise<{ profile?: Student
   try {
     const res = await fetch(`/api/profile/${userId}`);
     const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      return await res.json();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      return res.ok ? data : { error: data.error || "Failed to load profile." };
     }
   } catch {}
   return { error: "The secure authentication service is unavailable." };
